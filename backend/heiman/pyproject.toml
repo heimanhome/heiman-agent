@@ -1,0 +1,39 @@
+[project]
+name = "heiman-agent"
+dynamic = ["version"]
+description = "Heiman IoT sensor agent for smart home automation"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Heiman Team", email = "heiman-agent@example.com" }]
+dependencies = [
+  "aiofiles>=25.1.0",
+  "fastapi>=0.136.3",
+  "httpx>=0.27.2",
+  "numpy>=2.2.0",
+  "psutil>=7.2.2",
+  "paho-mqtt>=2.1.0",
+  "pydantic>=2.13.4",
+  "pydantic-settings>=2.14.2",
+  "python-dotenv>=1.2.2",
+  "uvicorn[standard]>=0.49.0",
+  "heimanhome-mcp>=0.1.0",
+  "heimanhome-mqtt>=1.0.1",
+]
+
+[project.scripts]
+heiman-backend = "heiman.main:start_server"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../..", fallback_version = "0.0.0" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/heiman"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

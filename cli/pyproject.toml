@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "heiman-cli"
+version = "1.0.0"
+description = "Command-line interface for Heiman Agent"
+requires-python = ">=3.10"
+authors = [{ name = "Heiman Team", email = "heiman-agent@example.com" }]
+dependencies = [
+  "click>=8.1.7",
+  "httpx>=0.28.1",
+  "python-dotenv>=1.2.2",
+  "rich>=13.7.1",
+]
+
+[project.scripts]
+heiman = "heiman_cli.main:main"
+heiman-cli = "heiman_cli.main:main"

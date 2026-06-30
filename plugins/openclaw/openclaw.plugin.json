@@ -1,0 +1,102 @@
+{
+  "id": "heiman-openclaw-plugin",
+  "name": "Heiman Agent",
+  "description": "Heiman sensor monitoring for OpenClaw with AI capabilities",
+  "activation": {
+    "onStartup": true
+  },
+  "hooks": {
+    "allowConversationAccess": true
+  },
+  "contracts": {
+    "tools": ["heiman_notify", "heiman_habit_suggest"]
+  },
+  "skills": [
+    "./skills/heiman-admin",
+    "./skills/heiman-devices",
+    "./skills/heiman-sensors",
+    "./skills/heiman-events",
+    "./skills/heiman-perception",
+    "./skills/heiman-security",
+    "./skills/heiman-ai-insight",
+    "./skills/heiman-behavior-learning",
+    "./skills/heiman-edge-inference",
+    "./skills/heiman-habit-suggest",
+    "./skills/heiman-home-observe",
+    "./skills/heiman-home-patrol",
+    "./skills/heiman-home-profile",
+    "./skills/heiman-home-promote",
+    "./skills/heiman-home-prune",
+    "./skills/heiman-identity",
+    "./skills/heiman-identity-register",
+    "./skills/heiman-notify",
+    "./skills/heiman-create-task",
+    "./skills/heiman-terminate-task",
+    "./skills/heiman-report-generator",
+    "./skills/heiman-rules",
+    "./skills/heiman-scope",
+    "./skills/heiman-perception-digest",
+    "./skills/heiman-device-monitor",
+    "./skills/heiman-homes"
+  ],
+  "configSchema": {
+    "title": "HeimanPluginConfig",
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "debug": {
+        "type": "boolean",
+        "description": "调试模式"
+      },
+      "backend_url": {
+        "type": "string",
+        "description": "Heiman Agent后端服务地址"
+      },
+      "notifySessionKey": {
+        "type": "string",
+        "description": "通知目标sessionKey"
+      },
+      "ai_enabled": {
+        "type": "boolean",
+        "description": "启用AI功能",
+        "default": true
+      },
+      "perception_enabled": {
+        "type": "boolean",
+        "description": "启用感知功能",
+        "default": true
+      },
+      "behavior_learning_enabled": {
+        "type": "boolean",
+        "description": "启用行为学习",
+        "default": true
+      }
+    }
+  },
+  "uiHints": {
+    "debug": {
+      "label": "调试模式",
+      "help": "打开调试模式，方便排查定位问题。"
+    },
+    "backend_url": {
+      "label": "后端服务地址",
+      "help": "Heiman Agent 后端 API 服务地址。默认 http://localhost:1912"
+    },
+    "notifySessionKey": {
+      "label": "通知目标 Channel",
+      "help": "指定接收 heiman 通知的 IM channel session key。留空则自动选择最近活跃的 channel。"
+    },
+    "ai_enabled": {
+      "label": "启用AI功能",
+      "help": "启用AI智能分析、习惯学习、边缘推理等功能。"
+    },
+    "perception_enabled": {
+      "label": "启用感知功能",
+      "help": "启用摄像头、麦克风等感知设备的集成。"
+    },
+    "behavior_learning_enabled": {
+      "label": "启用行为学习",
+      "help": "启用用户习惯学习和智能建议功能。"
+    }
+  }
+}

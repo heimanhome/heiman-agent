@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Heiman Agent</title>
+    <script>
+      // 服务端注入的 token 处理
+      // 服务端会将 __HEIMAN_INJECT_TOKEN_HERE__ 替换为实际的 server.token
+      window.__HEIMAN_TOKEN__ = "__HEIMAN_INJECT_TOKEN_HERE__";
+      if (window.__HEIMAN_TOKEN__ && window.__HEIMAN_TOKEN__ !== "__HEIMAN_INJECT_TOKEN_HERE__") {
+        localStorage.setItem('heiman_access_token', window.__HEIMAN_TOKEN__);
+        localStorage.setItem('heiman_token_source', 'server_injected');
+        console.log('Token injected from server:', window.__HEIMAN_TOKEN__);
+      }
+    </script>
+    <script type="module">
+      if (import.meta.hot?.on) {
+        import.meta.hot.on('vite:error', (error) => {
+          if (error.err) {
+            console.error(
+              [error.err.message, error.err.frame].filter(Boolean).join('\n'),
+            )
+          }
+        })
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

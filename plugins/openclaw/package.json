@@ -1,0 +1,51 @@
+{
+  "name": "@heiman/openclaw-plugin",
+  "version": "1.0.1",
+  "type": "module",
+  "description": "Heiman Agent OpenClaw Plugin - 智能家居传感器数据管理",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "openclaw": {
+    "extensions": ["./dist/src/index.js"]
+  },
+  "files": [
+    "dist",
+    "skills",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:full": "tsc && node scripts/sync-skills.mjs",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "sync:skills": "node scripts/sync-skills.mjs"
+  },
+  "keywords": [
+    "heiman",
+    "smart-home",
+    "iot",
+    "sensors",
+    "openclaw"
+  ],
+  "author": "Heiman",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.0.0"
+  }
+}
