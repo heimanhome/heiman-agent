@@ -44,7 +44,7 @@ class MetricsRecorder:
                 """INSERT OR REPLACE INTO traces
                    (trace_id, timestamp, device_count, skipped, cycle_total_ms,
                     pipeline_total_ms, collect_ms, log_ms, decode_ms, convert_ms,
-                    gate_ms, identity_ms, omni_ms, omni_call_count, omni_error_count,
+                    gate_ms, identity_ms, heiman_ms, heiman_call_count, heiman_error_count,
                     in_delay_ms, out_delay_ms, cycle_error_msg)
                    VALUES (?, ?, ?, 0, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?)""",
                 (

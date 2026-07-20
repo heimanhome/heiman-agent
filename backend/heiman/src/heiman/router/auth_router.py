@@ -77,7 +77,7 @@ async def heiman_redirect(code: str, state: str):
     try:
         # 使用 HeimanClient 的 OAuth2 方法获取 token
         # 注意：海曼 API 使用自签名证书，需要禁用 SSL 验证
-        oauth_client = HeimanClient(base_url=settings.heiman.api_url, token=None, verify_ssl=False)
+        oauth_client = HeimanClient(base_url=settings.heiman.api_url, token=None)
         token_data = await oauth_client.exchange_code_for_token(
             code=code,
             redirect_uri=settings.heiman.redirect_uri,
@@ -104,9 +104,6 @@ async def heiman_redirect(code: str, state: str):
         user_client = HeimanClient(
             base_url=settings.heiman.api_url,
             token=access_token,
-            verify_ssl=False,
-            tenant_id=settings.heiman.tenant_id,
-            accept_language=settings.heiman.language,
         )
         try:
             user_info = await user_client.get_current_user()
@@ -293,9 +290,7 @@ async def refresh_token(body: dict | None = None):
     logger.info("[AUTH] Refreshing token (source=%s)", "request_body" if request_refresh_token else "stored")
 
     try:
-        # 使用 HeimanClient 的 refresh_access_token 方法
-        # 注意：海曼 API 使用自签名证书，需要禁用 SSL 验证
-        oauth_client = HeimanClient(base_url=settings.heiman.api_url, token=None, verify_ssl=False)
+        oauth_client = HeimanClient(base_url=settings.heiman.api_url, token=None)
         token_data = await oauth_client.refresh_access_token(
             refresh_token=refresh_token_to_use,
             client_id=settings.heiman.client_id,
@@ -304,16 +299,32 @@ async def refresh_token(body: dict | None = None):
         await oauth_client.close()
 
         logger.info(
-            "[AUTH] Refresh token response: %s",
-            {k: v if k != "access_token" else f"***({len(v)} chars)" for k, v in token_data.items()},
+            "[AUTH] Refresh token response type: %s, content: %s",
+            type(token_data).__name__,
+            str(token_data)[:800],
         )
 
-        access_token = token_data.get("access_token")
-        refresh_token_new = token_data.get("refresh_token")
+        if isinstance(token_data, dict):
+            status = token_data.get("status")
+            result = token_data.get("result")
+            message = token_data.get("message", "")
+            
+            if status == 200 and not result and not message:
+                logger.error("[AUTH] Token refresh returned empty result - refresh_token may be expired")
+                set_current_token(None)
+                raise HTTPException(status_code=401, detail="Refresh token expired, please re-authenticate")
 
-        if not access_token:
-            logger.error("[AUTH] No access token in refresh response: %s", token_data)
-            raise HTTPException(status_code=400, detail="No access token in refresh response")
+            access_token = token_data.get("access_token")
+            refresh_token_new = token_data.get("refresh_token")
+
+            if not access_token:
+                logger.error("[AUTH] No access token in refresh response: status=%s, message=%s", status, message)
+                set_current_token(None)
+                raise HTTPException(status_code=401, detail="Refresh token invalid, please re-authenticate")
+        else:
+            logger.error("[AUTH] Token refresh returned unexpected response type: %s", type(token_data).__name__)
+            set_current_token(None)
+            raise HTTPException(status_code=500, detail="Token refresh failed")
 
         set_current_token({
             "access_token": access_token,

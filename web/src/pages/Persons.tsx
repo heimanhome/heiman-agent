@@ -143,7 +143,7 @@ export function Persons() {
   const getRoleIcon = (role?: string | null, isHomeRoot?: number | null) => {
     if (role === 'owner' || isHomeRoot === 1) return <Crown className="w-4 h-4 text-yellow-400" />;
     if (role === 'admin') return <Shield className="w-4 h-4 text-[#00d4ff]" />;
-    return <User className="w-4 h-4 text-[#6b7a9a]" />;
+    return <User className="w-4 h-4 text-gray-500 dark:text-[#6b7a9a]" />;
   };
 
   const getRoleLabel = (role?: string | null, isHomeRoot?: number | null) => {
@@ -155,7 +155,7 @@ export function Persons() {
 
   const renderTaskRecord = (task: Task) => {
     if (!task.record) {
-      return <p className="text-xs text-[#6b7a9a] mt-2">{t('noRecord')}</p>;
+      return <p className="text-xs text-gray-500 dark:text-[#6b7a9a] mt-2">{t('noRecord')}</p>;
     }
     const r = task.record;
     if (r.kind === 'progress') {
@@ -163,7 +163,7 @@ export function Persons() {
       const pct = Math.min(100, Math.round((rec.current / Math.max(1, rec.target)) * 100));
       return (
         <div className="mt-3">
-          <div className="flex justify-between text-xs text-[#6b7a9a] mb-1">
+          <div className="flex justify-between text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">
             <span>{rec.current} / {rec.target} {rec.unit}</span>
             <span>{pct}%</span>
           </div>
@@ -177,7 +177,7 @@ export function Persons() {
       const rec = r as DurationRecord;
       return (
         <div className="mt-3">
-          <p className="text-xs text-[#6b7a9a]">
+          <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">
             {rec.accumulated_minutes} / {rec.target_minutes} {t('minutes')}
             {rec.active_session_start_at && <span className="ml-2 text-[#00ff88]">● {t('active')}</span>}
           </p>
@@ -187,7 +187,7 @@ export function Persons() {
     const rec = r as EventRecord;
     return (
       <div className="mt-3">
-        <p className="text-xs text-[#6b7a9a]">
+        <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">
           {t('total')}: {rec.total_count} | {t('today')}: {rec.today_count}
         </p>
       </div>
@@ -198,24 +198,24 @@ export function Persons() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Users className="w-6 h-6" />
             {t('persons')}
           </h1>
-          <p className="text-sm text-[#6b7a9a]">{t('personsDescription')}</p>
+          <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('personsDescription')}</p>
         </div>
         <button
           onClick={handleSyncMembers}
           disabled={syncing || !currentHomeId}
-          className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff] text-[#0a1628] font-medium rounded-xl hover:bg-[#00d4ff]/90 transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white font-medium rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
           {syncing ? t('syncingMembers') : t('syncMembers')}
         </button>
       </div>
 
-      <div className="bg-[#0f2137] rounded-xl p-4 border border-white/5">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-4 border border-gray-200 dark:border-white/5">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <UserPlus className="w-5 h-5" />
           {editingId ? t('editPerson') : t('addPerson')}
         </h2>
@@ -225,20 +225,20 @@ export function Persons() {
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             placeholder={t('namePlaceholder')}
-            className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00d4ff]/50"
+            className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50"
           />
           <input
             type="text"
             value={formData.role}
             onChange={(e) => setFormData({ ...formData, role: e.target.value })}
             placeholder={t('rolePlaceholder')}
-            className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00d4ff]/50"
+            className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50"
           />
           {editingId ? (
             <>
               <button
                 onClick={() => handleUpdatePerson(editingId)}
-                className="px-4 py-2 bg-[#00d4ff] text-[#0a0e1a] rounded-xl font-semibold hover:bg-[#00b8e6]"
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-700"
               >
                 {t('save')}
               </button>
@@ -247,7 +247,7 @@ export function Persons() {
                   setEditingId(null);
                   setFormData({ name: '', role: '' });
                 }}
-                className="px-4 py-2 bg-white/5 text-white rounded-xl hover:bg-white/10"
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700"
               >
                 {t('cancel')}
               </button>
@@ -255,7 +255,7 @@ export function Persons() {
           ) : (
             <button
               onClick={handleCreatePerson}
-              className="px-4 py-2 bg-[#00d4ff] text-[#0a0e1a] rounded-xl font-semibold hover:bg-[#00b8e6]"
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               {t('add')}
             </button>
@@ -268,47 +268,47 @@ export function Persons() {
           <Loader2 className="w-8 h-8 animate-spin text-[#00d4ff]" />
         </div>
       ) : persons.length === 0 ? (
-        <div className="bg-[#0f2137] rounded-xl p-12 text-center border border-white/5">
-          <Users className="w-12 h-12 mx-auto mb-4 text-[#6b7a9a]" />
-          <p className="text-white mb-2">{t('noPersons')}</p>
-          <p className="text-sm text-[#6b7a9a]">{t('syncMembersHint')}</p>
+        <div className="bg-white dark:bg-[#0f2137] rounded-xl p-12 text-center border border-gray-200 dark:border-white/5">
+          <Users className="w-12 h-12 mx-auto mb-4 text-gray-500 dark:text-[#6b7a9a]" />
+          <p className="text-gray-900 dark:text-white mb-2">{t('noPersons')}</p>
+          <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('syncMembersHint')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {persons.map((p) => (
-            <div key={p.id} className="bg-[#0f2137] rounded-2xl p-5 border border-white/5 hover:border-[#00d4ff]/30 transition-colors">
+            <div key={p.id} className="bg-white dark:bg-[#0f2137] rounded-2xl p-5 border border-gray-200 dark:border-white/5 hover:border-[#00d4ff]/30 transition-colors">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#00d4ff]/20 to-[#00d4ff]/5 flex items-center justify-center">
                     <User className="w-6 h-6 text-[#00d4ff]" />
                   </div>
                   <div>
-                    <h3 className="text-white font-semibold flex items-center gap-2">
+                    <h3 className="text-gray-900 dark:text-white font-semibold flex items-center gap-2">
                       {p.alias_name || p.name}
                       {getRoleIcon(p.role, p.is_home_root)}
                     </h3>
-                    <p className="text-xs text-[#6b7a9a]">{getRoleLabel(p.role, p.is_home_root)}</p>
+                    <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">{getRoleLabel(p.role, p.is_home_root)}</p>
                   </div>
                 </div>
                 <div className="flex gap-1">
                   <button
                     onClick={() => startEditPerson(p)}
-                    className="p-1.5 hover:bg-white/5 rounded-lg"
+                    className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
                     aria-label={t('edit')}
                   >
-                    <Edit className="w-4 h-4 text-[#00d4ff]" />
+                    <Edit className="w-4 h-4 text-gray-900 dark:text-white" />
                   </button>
                   <button
                     onClick={() => handleDeletePerson(p.id)}
-                    className="p-1.5 hover:bg-white/5 rounded-lg"
+                    className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
                     aria-label={t('delete')}
                   >
-                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <Trash2 className="w-4 h-4 text-gray-900 dark:text-white" />
                   </button>
                 </div>
               </div>
               {p.user_account && (
-                <p className="text-xs text-[#6b7a9a]">账号：{p.user_account}</p>
+                <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">账号：{p.user_account}</p>
               )}
               {p.remark && (
                 <p className="text-xs text-[#4a5568] mt-1">{p.remark}</p>
@@ -318,18 +318,18 @@ export function Persons() {
         </div>
       )}
 
-      <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5">
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <FileText className="w-5 h-5" />
               {t('homeProfile')}
             </h2>
-            <p className="text-xs text-[#6b7a9a]">{t('homeProfileDescription')}</p>
+            <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">{t('homeProfileDescription')}</p>
           </div>
           <button
             onClick={() => setShowEntryForm(true)}
-            className="flex items-center gap-1 text-sm text-[#00d4ff] hover:underline"
+            className="flex items-center gap-1 text-sm text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300"
           >
             <Plus className="w-4 h-4" />
             {t('addEntry')}
@@ -346,44 +346,44 @@ export function Persons() {
                       {t(`entryTypeLabels.${entry.type}`)}
                     </span>
                     {entry.subjectName && (
-                      <span className="text-xs text-[#6b7a9a]">{entry.subjectName}</span>
+                      <span className="text-xs text-gray-500 dark:text-[#6b7a9a]">{entry.subjectName}</span>
                     )}
                   </div>
-                  <p className="text-sm text-white">{entry.content}</p>
+                  <p className="text-sm text-gray-900 dark:text-white">{entry.content}</p>
                   <p className="text-xs text-[#4a5568] mt-1">
                     {t('lastUpdate')}: {new Date(entry.lastSeen).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="flex gap-1 ml-4">
                   <button
-                    onClick={() => startEditEntry(entry)}
-                    className="p-1.5 hover:bg-white/5 rounded-lg"
-                    aria-label={t('edit')}
-                  >
-                    <Edit className="w-4 h-4 text-[#00d4ff]" />
-                  </button>
-                  <button
-                    onClick={() => deleteHomeEntry(entry.id)}
-                    className="p-1.5 hover:bg-white/5 rounded-lg"
-                    aria-label={t('delete')}
-                  >
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                  </button>
+                      onClick={() => startEditEntry(entry)}
+                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
+                      aria-label={t('edit')}
+                    >
+                      <Edit className="w-4 h-4 text-gray-900 dark:text-white" />
+                    </button>
+                    <button
+                      onClick={() => deleteHomeEntry(entry.id)}
+                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
+                      aria-label={t('delete')}
+                    >
+                      <Trash2 className="w-4 h-4 text-gray-900 dark:text-white" />
+                    </button>
                 </div>
               </div>
             ))}
           </div>
         ) : (
           <div className="text-center py-8">
-            <FileText className="w-10 h-10 mx-auto mb-3 text-[#6b7a9a]" />
-            <p className="text-[#6b7a9a]">{t('noHomeProfile')}</p>
+            <FileText className="w-10 h-10 mx-auto mb-3 text-gray-500 dark:text-[#6b7a9a]" />
+            <p className="text-gray-500 dark:text-[#6b7a9a]">{t('noHomeProfile')}</p>
             <p className="text-xs text-[#4a5568]">{t('homeProfileHint')}</p>
           </div>
         )}
 
         {homeEntries?.candidates && homeEntries.candidates.length > 0 && (
           <div className="mt-6 pt-6 border-t border-white/5">
-            <h3 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-[#ffa502]" />
               {t('pendingCandidates')} ({homeEntries.candidates.length})
             </h3>
@@ -396,7 +396,7 @@ export function Persons() {
                         {t(`entryTypeLabels.${candidate.type}`)}
                       </span>
                     </div>
-                    <p className="text-sm text-white">{candidate.content}</p>
+                    <p className="text-sm text-gray-900 dark:text-white">{candidate.content}</p>
                     <p className="text-xs text-[#4a5568] mt-1">
                       {t('confidence')}: {Math.round(candidate.confidence * 100)}%
                     </p>
@@ -404,13 +404,13 @@ export function Persons() {
                   <div className="flex gap-2 ml-4">
                     <button
                       onClick={() => confirmCandidate(candidate.id)}
-                      className="px-3 py-1.5 bg-[#00ff88] text-[#0a0e1a] text-xs rounded-lg font-medium hover:bg-[#00e078]"
+                      className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-xs rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-700"
                     >
                       {t('confirm')}
                     </button>
                     <button
                       onClick={() => ignoreCandidate(candidate.id)}
-                      className="px-3 py-1.5 bg-white/5 text-white text-xs rounded-lg hover:bg-white/10"
+                      className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white text-xs rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700"
                     >
                       {t('ignore')}
                     </button>
@@ -422,14 +422,14 @@ export function Persons() {
         )}
       </div>
 
-      <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5">
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <CheckSquare className="w-5 h-5" />
               {t('tasks')}
             </h2>
-            <p className="text-xs text-[#6b7a9a]">{t('tasksDescription')}</p>
+            <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">{t('tasksDescription')}</p>
           </div>
         </div>
 
@@ -439,7 +439,7 @@ export function Persons() {
               <div key={task.task_id} className="bg-white/5 rounded-xl p-4">
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <h3 className="text-white font-semibold">{task.description}</h3>
+                    <h3 className="text-gray-900 dark:text-white font-semibold">{task.description}</h3>
                     {task.status === 'paused' && (
                       <span className="text-xs text-yellow-400">● {t('paused')}</span>
                     )}
@@ -447,21 +447,21 @@ export function Persons() {
                   <div className="flex gap-1">
                     <button
                       onClick={() => setTaskEnabled(task.task_id, task.status === 'paused')}
-                      className="p-1.5 hover:bg-white/5 rounded-lg"
+                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
                       aria-label={task.status === 'active' ? t('disable') : t('enable')}
                     >
                       {task.status === 'active' ? (
-                        <CheckCircle className="w-4 h-4 text-[#00ff88]" />
+                        <CheckCircle className="w-4 h-4 text-gray-900 dark:text-white" />
                       ) : (
-                        <X className="w-4 h-4 text-[#6b7a9a]" />
+                        <X className="w-4 h-4 text-gray-900 dark:text-white" />
                       )}
                     </button>
                     <button
                       onClick={() => deleteTask(task.task_id)}
-                      className="p-1.5 hover:bg-white/5 rounded-lg"
+                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
                       aria-label={t('delete')}
                     >
-                      <Trash2 className="w-4 h-4 text-red-400" />
+                      <Trash2 className="w-4 h-4 text-gray-900 dark:text-white" />
                     </button>
                   </div>
                 </div>
@@ -471,8 +471,8 @@ export function Persons() {
           </div>
         ) : (
           <div className="text-center py-8">
-            <CheckSquare className="w-10 h-10 mx-auto mb-3 text-[#6b7a9a]" />
-            <p className="text-[#6b7a9a]">{t('noTasks')}</p>
+            <CheckSquare className="w-10 h-10 mx-auto mb-3 text-gray-500 dark:text-[#6b7a9a]" />
+            <p className="text-gray-500 dark:text-[#6b7a9a]">{t('noTasks')}</p>
             <p className="text-xs text-[#4a5568]">{t('tasksHint')}</p>
           </div>
         )}
@@ -480,9 +480,9 @@ export function Persons() {
 
       {showEntryForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0f2137] border border-white/5 rounded-xl p-6 w-full max-w-md">
+          <div className="bg-white dark:bg-[#0f2137] border border-gray-200 dark:border-white/5 rounded-xl p-6 w-full max-w-md">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 {editingEntryId ? t('editEntry') : t('addEntry')}
               </h3>
               <button
@@ -493,16 +493,16 @@ export function Persons() {
                 }}
                 className="p-1.5 hover:bg-white/5 rounded-lg"
               >
-                <X className="w-5 h-5 text-[#6b7a9a]" />
+                <X className="w-5 h-5 text-gray-500 dark:text-[#6b7a9a]" />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-[#6b7a9a] mb-2">{t('entryType')}</label>
+                <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-2">{t('entryType')}</label>
                 <select
                   value={entryFormData.type}
                   onChange={(e) => setEntryFormData({ ...entryFormData, type: e.target.value as HomeEntryType })}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00d4ff]/50 appearance-none cursor-pointer"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 appearance-none cursor-pointer"
                 >
                   {Object.entries(entryTypeLabels).map(([type, label]) => (
                     <option key={type} value={type}>{label}</option>
@@ -510,13 +510,13 @@ export function Persons() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-[#6b7a9a] mb-2">{t('content')}</label>
+                <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-2">{t('content')}</label>
                 <textarea
                   value={entryFormData.content}
                   onChange={(e) => setEntryFormData({ ...entryFormData, content: e.target.value })}
                   placeholder={t('entryContentPlaceholder')}
                   rows={4}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 resize-none"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 resize-none"
                 />
               </div>
               <div className="flex gap-2">
@@ -526,13 +526,13 @@ export function Persons() {
                     setEditingEntryId(null);
                     setEntryFormData({ type: 'family', content: '', subjectId: null, subjectName: null });
                   }}
-                  className="flex-1 px-4 py-2 bg-white/5 text-white rounded-xl font-medium hover:bg-white/10"
+                  className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl font-medium hover:bg-gray-200 dark:hover:bg-gray-700"
                 >
                   {t('cancel')}
                 </button>
                 <button
                   onClick={handleSaveEntry}
-                  className="flex-1 px-4 py-2 bg-[#00d4ff] text-[#0a0e1a] rounded-xl font-medium hover:bg-[#00b8e6]"
+                  className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl font-medium hover:bg-gray-200 dark:hover:bg-gray-700"
                 >
                   {t('save')}
                 </button>

@@ -152,20 +152,9 @@ class MqttService:
                 auto_reconnect=False,
             )
 
-            self._client.register_device_callback(self._on_device_update)
-            self._client.register_event_callback(self._on_event_received)
-
-            self._client.add_topic_callback("/+/+/event/#", self._on_raw_message)
-            self._client.add_topic_callback("/+/+/child/+/event/#", self._on_raw_message)
-            logger.info("[MQTT] Registered raw message callbacks for event topics")
-
-            all_event_topic = "/+/+/event/#"
-            self._client.subscribe(all_event_topic)
-            logger.info("[MQTT] Subscribed to all device event topics: %s", all_event_topic)
-
-            all_child_event_topic = "/+/+/child/+/event/#"
-            self._client.subscribe(all_child_event_topic)
-            logger.info("[MQTT] Subscribed to all child device event topics: %s", all_child_event_topic)
+            app_topic_wildcard = f"/iot/app/11/{user_id}/#"
+            self._client.add_topic_callback(app_topic_wildcard, self._on_raw_message)
+            logger.info("[MQTT] Registered raw message callback for app topic: %s", app_topic_wildcard)
 
             logger.info("[MQTT] Initiating connection...")
             logger.info(
@@ -197,17 +186,15 @@ class MqttService:
                     self._client.client_id,
                 )
 
+                subscribed_topics = getattr(self._client, '_subscribed_topics', set())
+                logger.info("[MQTT] Current subscribed topics: %s", subscribed_topics)
+
                 app_topic = f"/iot/app/11/{user_id}/#"
-                self._client.subscribe(app_topic)
-                logger.info("[MQTT] Subscribed to app topic: %s", app_topic)
-
-                device_topic = f"/iot/device/+/properties/report"
-                self._client.subscribe(device_topic)
-                logger.info("[MQTT] Subscribed to device property report topic")
-
-                event_topic = f"/iot/device/+/event/#"
-                self._client.subscribe(event_topic)
-                logger.info("[MQTT] Subscribed to device event topic")
+                if app_topic not in subscribed_topics:
+                    self._client.subscribe(app_topic)
+                    logger.info("[MQTT] Subscribed to app topic: %s", app_topic)
+                else:
+                    logger.info("[MQTT] App topic already subscribed: %s", app_topic)
 
                 await self.start_connection_monitor()
 
@@ -248,26 +235,26 @@ class MqttService:
                 pass
         self._client = None
 
-    def _on_device_update(self, device_id: str, data: dict):
+    def _on_device_update(self, device_id: str, data: dict, topic: str = ""):
         try:
             properties = data.get("properties", {})
             logger.info("[MQTT] Device update for %s: %s", device_id, properties)
 
             for callback in self._device_callbacks:
                 try:
-                    callback(device_id, data)
+                    callback(device_id, data, topic)
                 except Exception as e:
                     logger.error("[MQTT] Error in device callback: %s", e)
         except Exception as e:
             logger.error("[MQTT] Error handling device update: %s", e)
 
-    def _on_event_received(self, device_id: str, event_type: str, payload: dict):
+    def _on_event_received(self, device_id: str, event_type: str, payload: dict, topic: str = ""):
         try:
             logger.info("[MQTT] Event from device %s: %s", device_id, event_type)
 
             for callback in self._event_callbacks:
                 try:
-                    callback(device_id, event_type, payload)
+                    callback(device_id, event_type, payload, topic)
                 except Exception as e:
                     logger.error("[MQTT] Error in event callback: %s", e)
         except Exception as e:
@@ -346,7 +333,13 @@ class MqttService:
 
     def _on_raw_message(self, topic: str, payload: dict):
         try:
-            logger.debug("[MQTT] Raw message on topic: %s", topic)
+            logger.info("[MQTT] Raw message received:")
+            logger.info("[MQTT]   Topic: %s", topic)
+            logger.info("[MQTT]   Payload: %s", json.dumps(payload, indent=2, ensure_ascii=False))
+
+            device_id = self._extract_device_id(topic)
+            if device_id:
+                self._process_device_message(device_id, topic, payload)
 
             for callback in self._raw_message_callbacks:
                 try:
@@ -355,6 +348,30 @@ class MqttService:
                     logger.error("[MQTT] Error in raw message callback: %s", e)
         except Exception as e:
             logger.error("[MQTT] Error handling raw message: %s", e)
+
+    def _extract_device_id(self, topic: str) -> Optional[str]:
+        parts = topic.strip('/').split('/')
+        for i, part in enumerate(parts):
+            if part == 'device' and i + 1 < len(parts):
+                return parts[i + 1]
+            if part == 'child' and i + 1 < len(parts):
+                return parts[i + 1]
+        return None
+
+    def _process_device_message(self, device_id: str, topic: str, payload: dict):
+        try:
+            parts = topic.strip('/').split('/')
+            
+            if 'properties' in parts and 'report' in parts:
+                self._on_device_update(device_id, payload, topic)
+            elif 'event' in parts:
+                event_index = parts.index('event')
+                event_type = parts[event_index + 1] if event_index + 1 < len(parts) else 'unknown'
+                self._on_event_received(device_id, event_type, payload, topic)
+            else:
+                logger.debug("[MQTT] Unknown message type for device %s: %s", device_id, topic)
+        except Exception as e:
+            logger.error("[MQTT] Error processing device message: %s", e)
 
     def register_message_callback(self, callback: Callable[[str, Dict], None]):
         self._message_callbacks.append(callback)

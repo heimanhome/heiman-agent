@@ -46,8 +46,8 @@ class ModelRepo:
             now = datetime.now().isoformat()
             self._db.execute_update(
                 """
-                INSERT INTO models (id, name, version, type, status, description, accuracy, last_deployed, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO models (id, name, version, type, status, description, accuracy, model_path, last_deployed, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model_data.get("id"),
@@ -57,6 +57,7 @@ class ModelRepo:
                     model_data.get("status"),
                     model_data.get("description"),
                     model_data.get("accuracy", 0),
+                    model_data.get("model_path"),
                     model_data.get("last_deployed"),
                     now,
                     now,
@@ -91,6 +92,9 @@ class ModelRepo:
             if "accuracy" in model_data:
                 update_fields.append("accuracy = ?")
                 params.append(model_data["accuracy"])
+            if "model_path" in model_data:
+                update_fields.append("model_path = ?")
+                params.append(model_data["model_path"])
             if "last_deployed" in model_data:
                 update_fields.append("last_deployed = ?")
                 params.append(model_data["last_deployed"])
@@ -146,6 +150,20 @@ class ModelRepo:
             return True
         except Exception as e:
             logger.error("[MODEL] Failed to stop model: %s", e)
+            raise
+
+    def get_active_model(self) -> Optional[dict]:
+        try:
+            rows = self._db.execute_query(
+                "SELECT * FROM models WHERE status = 'deployed' ORDER BY last_deployed DESC LIMIT 1"
+            )
+            if rows:
+                row_dict = dict(rows[0])
+                row_dict["lastDeployed"] = row_dict.pop("last_deployed", "-")
+                return row_dict
+            return None
+        except Exception as e:
+            logger.error("[MODEL] Failed to get active model: %s", e)
             raise
 
 

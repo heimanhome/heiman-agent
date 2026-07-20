@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class OmniContext:
+class HeimanContext:
     home_id: str
     timestamp: float
     persons: List[Dict] = field(default_factory=list)
@@ -20,7 +20,7 @@ class OmniContext:
 
 
 @dataclass
-class OmniOutput:
+class HeimanOutput:
     response: str = ""
     matched_rules: List[Dict] = field(default_factory=list)
     suggestions: List[Dict] = field(default_factory=list)
@@ -30,7 +30,7 @@ class OmniOutput:
 
 
 @dataclass
-class OmniConfig:
+class HeimanConfig:
     model: str = "qwen3:8b"
     base_url: str = "http://localhost:11434"
     api_key: str = ""
@@ -40,12 +40,12 @@ class OmniConfig:
     timeout: float = 30.0
 
 
-class OmniLayer:
-    def __init__(self, config: Optional[OmniConfig] = None):
-        self.config = config or OmniConfig()
+class HeimanLayer:
+    def __init__(self, config: Optional[HeimanConfig] = None):
+        self.config = config or HeimanConfig()
         self._llm_client = None
 
-    async def run(self, context: OmniContext, query: Optional[str] = None) -> OmniOutput:
+    async def run(self, context: HeimanContext, query: Optional[str] = None) -> HeimanOutput:
         prompt = self._build_prompt(context, query)
         raw_response = await self._call_llm(prompt)
         output = self._parse_response(raw_response)
@@ -53,10 +53,10 @@ class OmniLayer:
 
     async def run_stream(
         self,
-        context: OmniContext,
+        context: HeimanContext,
         query: Optional[str] = None,
         on_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
-    ) -> OmniOutput:
+    ) -> HeimanOutput:
         prompt = self._build_prompt(context, query)
         buffer = ""
         
@@ -67,7 +67,7 @@ class OmniLayer:
         
         return self._parse_response(buffer)
 
-    def _build_prompt(self, context: OmniContext, query: Optional[str]) -> str:
+    def _build_prompt(self, context: HeimanContext, query: Optional[str]) -> str:
         parts = []
         
         parts.append("你是一个智能家庭助手，负责分析家庭状态并提供智能建议。")
@@ -128,7 +128,7 @@ class OmniLayer:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.warning(f"Omni LLM call failed: {e}, using fallback")
+            logger.warning(f"Heiman LLM call failed: {e}, using fallback")
             return {
                 "response": "智能分析服务暂时不可用，请稍后重试。",
                 "usage": {},
@@ -154,16 +154,16 @@ class OmniLayer:
                         if chunk:
                             yield chunk
         except Exception as e:
-            logger.warning(f"Omni LLM stream failed: {e}")
+            logger.warning(f"Heiman LLM stream failed: {e}")
             yield "智能分析服务暂时不可用，请稍后重试。"
 
-    def _parse_response(self, raw: Dict[str, Any]) -> OmniOutput:
+    def _parse_response(self, raw: Dict[str, Any]) -> HeimanOutput:
         if isinstance(raw, dict):
             response_text = raw.get("response", raw.get("content", ""))
         else:
             response_text = str(raw)
         
-        return OmniOutput(
+        return HeimanOutput(
             response=response_text,
             suggestions=self._extract_suggestions(response_text),
             usage=raw.get("usage", {}) if isinstance(raw, dict) else {},
@@ -186,7 +186,7 @@ class OmniLayer:
         
         return suggestions
 
-    async def batch_run(self, contexts: List[OmniContext]) -> List[OmniOutput]:
+    async def batch_run(self, contexts: List[HeimanContext]) -> List[HeimanOutput]:
         results = []
         for context in contexts:
             result = await self.run(context)

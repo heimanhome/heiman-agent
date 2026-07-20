@@ -54,7 +54,7 @@ class AIOrchestrator:
     def __init__(self):
         self._perception_engine = None
         self._identity_engine = None
-        self._omni_layer = None
+        self._heiman_layer = None
         self._collector = None
         self._behavior_engine = None
         self._edge_inference = None
@@ -67,7 +67,7 @@ class AIOrchestrator:
 
         from heiman.perception.engine import PerceptionEngine
         from heiman.perception.identity import IdentityEngine
-        from heiman.perception.omni import OmniLayer, OmniConfig
+        from heiman.perception.heiman import HeimanLayer, HeimanConfig
         from heiman.perception.collector import (
             PerceptionCollector,
             SensorCollector,
@@ -81,7 +81,7 @@ class AIOrchestrator:
 
         self._perception_engine = PerceptionEngine()
         self._identity_engine = IdentityEngine()
-        self._omni_layer = OmniLayer(OmniConfig())
+        self._heiman_layer = HeimanLayer(HeimanConfig())
         self._collector = PerceptionCollector()
         self._behavior_engine = BehaviorLearningEngine()
         self._edge_inference = EdgeInferenceEngine()
@@ -120,15 +120,45 @@ class AIOrchestrator:
         await self._perception_engine.start()
         await self._collector.start_all()
         await self._behavior_engine.initialize()
-        await self._edge_inference.initialize([
-            {
+        
+        from heiman.config import get_settings
+        settings = get_settings()
+        heiman_model = getattr(settings, "model", None)
+        
+        if heiman_model and hasattr(heiman_model, "heiman"):
+            active_profile = heiman_model.heiman
+            model_name = getattr(active_profile, "model", "qwen3:8b")
+            base_url = getattr(active_profile, "base_url", "http://localhost:11434")
+            
+            if base_url and "ollama" in base_url.lower():
+                provider = "ollama"
+            elif base_url and "dashscope" in base_url.lower():
+                provider = "dashscope"
+            else:
+                provider = "ollama"
+            
+            model_config = {
+                "id": "llm_default",
+                "name": model_name,
+                "provider": provider,
+                "model": model_name,
+                "config": {
+                    "base_url": base_url,
+                },
+            }
+            logger.info(f"[AI] Loading configured model: {model_name} from {base_url}")
+        else:
+            model_config = {
                 "id": "llm_default",
                 "name": "default_llm",
                 "provider": "ollama",
                 "model": "qwen3:8b",
                 "config": {"base_url": "http://localhost:11434"},
             }
-        ])
+            logger.info("[AI] No model config found, using default: qwen3:8b")
+        
+        self._current_model_config = model_config
+        await self._edge_inference.initialize([model_config])
 
         self._identity_engine.add_person("pid_001", "张三", "owner")
         self._identity_engine.add_person("pid_002", "李四", "family")
@@ -257,13 +287,47 @@ class AIOrchestrator:
             logger.error(f"Failed to get heiman devices: {e}")
             return []
 
+    def _get_current_model_config(self) -> Dict:
+        from heiman.config import get_settings
+        settings = get_settings()
+        heiman_model = getattr(settings, "model", None)
+        
+        if heiman_model and hasattr(heiman_model, "heiman"):
+            active_profile = heiman_model.heiman
+            model_name = getattr(active_profile, "model", "qwen3:8b")
+            base_url = getattr(active_profile, "base_url", "http://localhost:11434")
+            api_key = getattr(active_profile, "api_key", "")
+            
+            if base_url and "dashscope" in base_url.lower():
+                provider = "dashscope"
+            elif base_url and "openai" in base_url.lower() and "ollama" not in base_url.lower():
+                provider = "openai"
+            else:
+                provider = "ollama"
+            
+            return {
+                "name": model_name,
+                "provider": provider,
+                "model": model_name,
+                "base_url": base_url,
+                "api_key": api_key,
+            }
+        
+        return {
+            "name": "qwen3:8b",
+            "provider": "ollama",
+            "model": "qwen3:8b",
+            "base_url": "http://localhost:11434",
+            "api_key": "",
+        }
+
     async def generate_intent_response(self, scene_context: SceneContext, user_query: str) -> Dict:
         context_prompt = self._build_context_prompt(scene_context)
 
-        if self._omni_layer:
-            from heiman.perception.omni import OmniContext
+        if self._heiman_layer:
+            from heiman.perception.heiman import HeimanContext
 
-            omni_context = OmniContext(
+            heiman_context = HeimanContext(
                 home_id=scene_context.home_id,
                 timestamp=scene_context.timestamp,
                 persons=[{
@@ -275,22 +339,31 @@ class AIOrchestrator:
                 environment=scene_context.environment,
             )
 
-            result = await self._omni_layer.run(omni_context, user_query)
+            result = await self._heiman_layer.run(heiman_context, user_query)
             response = result.response
+            model_config = self._get_current_model_config()
         else:
             from heiman.ai.llm_client import LlmClient
-            llm_client = LlmClient()
-            response = llm_client.generate_text(
+            
+            model_config = self._get_current_model_config()
+            provider = model_config.get("provider", "ollama")
+            model_name = model_config.get("model", "qwen3:8b")
+            base_url = model_config.get("base_url", "http://localhost:11434")
+            api_key = model_config.get("api_key", "")
+            
+            llm_client = LlmClient(provider=provider, api_key=api_key, base_url=base_url)
+            response = llm_client.generate(
                 f"""你是一个智能家庭助手。
 当前场景上下文：
 {context_prompt}
 
 用户问题：{user_query}
 
-请根据上下文提供准确、友好的回答和建议。"""
+请根据上下文提供准确、友好的回答和建议。""",
+                model=model_name
             )
 
-        return {"response": response, "context": scene_context}
+        return {"response": response, "context": scene_context, "model": model_config.get("name", model_name)}
 
     def _build_context_prompt(self, context: SceneContext) -> str:
         parts = []
@@ -310,7 +383,7 @@ class AIOrchestrator:
 
         return "\n".join(parts)
 
-    async def analyze_with_omni(self, home_id: str, query: str) -> Dict:
+    async def analyze_with_heiman(self, home_id: str, query: str) -> Dict:
         scene_context = await self.fuse_perception_data(home_id)
         return await self.generate_intent_response(scene_context, query)
 

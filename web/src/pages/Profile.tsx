@@ -130,11 +130,11 @@ export function Profile() {
   return (
     <div className="max-w-[1200px] w-full mx-auto px-4 md:px-8 pt-5 pb-12">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-white">{t('profile')}</h1>
-        <p className="text-sm text-[#6b7a9a]">{t('manageHomes')}</p>
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">{t('profile')}</h1>
+        <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('manageHomes')}</p>
       </div>
 
-      <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5 mb-6">
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5 mb-6">
         <div className="flex items-center gap-6">
           <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#00d4ff] to-[#00ff88] flex items-center justify-center">
             <User className="w-8 h-8 text-[#0a1628]" />
@@ -147,7 +147,7 @@ export function Profile() {
                     type="text"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    className="px-3 py-1.5 bg-white/5 border border-[#00d4ff]/50 rounded-lg text-white focus:outline-none focus:border-[#00d4ff]"
+                    className="px-3 py-1.5 bg-white/5 border border-[#00d4ff]/50 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]"
                     autoFocus
                   />
                   <button
@@ -158,19 +158,19 @@ export function Profile() {
                   </button>
                   <button
                     onClick={() => setEditingField(null)}
-                    className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-opacity"
+                    className="p-1.5 rounded-lg bg-white/10 text-gray-900 dark:text-white hover:bg-white/20 transition-opacity"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-3">
-                  <h2 className="text-lg font-semibold text-white">{profile.username || t('unknown')}</h2>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{profile.username || t('unknown')}</h2>
                   <button
                     onClick={() => handleEdit('username')}
                     className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
                   >
-                    <Edit2 className="w-4 h-4 text-[#6b7a9a]" />
+                    <Edit2 className="w-4 h-4 text-gray-500 dark:text-[#6b7a9a]" />
                   </button>
                 </div>
               )}
@@ -178,7 +178,7 @@ export function Profile() {
             {error && (
               <p className="text-sm text-[#ff4757] mt-1">{error}</p>
             )}
-            <p className="text-sm text-[#6b7a9a] mt-1">
+            <p className="text-sm text-gray-500 dark:text-[#6b7a9a] mt-1">
               {profile.bindStatus ? t('accountBinding') : t('bindAccount')}
             </p>
           </div>
@@ -192,8 +192,8 @@ export function Profile() {
                   <User className="w-5 h-5 text-[#0a1628]" />
                 </div>
                 <div>
-                  <p className="font-medium text-white">{t('accountBinding')}</p>
-                  <p className="text-sm text-[#6b7a9a]">{t('bindAccount')}</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{t('accountBinding')}</p>
+                  <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('bindAccount')}</p>
                 </div>
               </div>
               <button
@@ -207,8 +207,8 @@ export function Profile() {
         )}
       </div>
 
-      <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5 mb-6">
-        <h3 className="text-sm font-semibold text-white mb-4">{t('settings')}</h3>
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5 mb-6">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings')}</h3>
         <div className="space-y-4">
           {menuItems.map((item, index) => (
             <div
@@ -217,9 +217,9 @@ export function Profile() {
             >
               <div className="flex items-center gap-3">
                 <item.icon className="w-5 h-5 text-[#00d4ff]" />
-                <span className="text-white">{item.label}</span>
+                <span className="text-gray-900 dark:text-white">{item.label}</span>
               </div>
-              <span className="text-[#6b7a9a]">{item.value}</span>
+              <span className="text-gray-500 dark:text-[#6b7a9a]">{item.value}</span>
             </div>
           ))}
           <div
@@ -228,16 +228,16 @@ export function Profile() {
           >
             <div className="flex items-center gap-3">
               <Globe className="w-5 h-5 text-[#00d4ff]" />
-              <span className="text-white">{t('language')}</span>
+              <span className="text-gray-900 dark:text-white">{t('language')}</span>
             </div>
-            <span className="text-[#6b7a9a]">
+            <span className="text-gray-500 dark:text-[#6b7a9a]">
               {langOptions.find(l => l.key === i18n.language)?.label[i18n.language] || i18n.language}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5">
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
         <button
           onClick={handleLogout}
           className="w-full flex items-center justify-center gap-3 p-4 bg-[#ff4757]/10 border border-[#ff4757]/30 rounded-xl text-[#ff4757] hover:bg-[#ff4757]/20 transition-colors"
@@ -250,10 +250,10 @@ export function Profile() {
       {showLanguageModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowLanguageModal(false)} />
-          <div className="relative bg-[#0f2137] rounded-xl p-6 border border-white/10 w-full max-w-md">
+          <div className="relative bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-white/10 w-full max-w-md">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-white">{t('language')}</h3>
-              <button onClick={() => setShowLanguageModal(false)} className="text-[#6b7a9a] hover:text-white">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t('language')}</h3>
+              <button onClick={() => setShowLanguageModal(false)} className="text-gray-500 dark:text-[#6b7a9a] hover:text-gray-900 dark:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -268,7 +268,7 @@ export function Profile() {
                       : 'bg-white/5 hover:bg-white/10 border border-transparent'
                   }`}
                 >
-                  <span className="text-white">{option.label[i18n.language]}</span>
+                  <span className="text-gray-900 dark:text-white">{option.label[i18n.language]}</span>
                   {i18n.language === option.key && (
                     <Check className="w-5 h-5 text-[#00d4ff]" />
                   )}

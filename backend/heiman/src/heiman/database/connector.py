@@ -9,7 +9,7 @@ from heiman.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_DB_SCHEMA_VERSION = 10
+_DB_SCHEMA_VERSION = 13
 
 
 class SQLiteConnector:
@@ -163,6 +163,52 @@ class SQLiteConnector:
                                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_person_user_id ON person(user_id)")
                                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_person_home_id ON person(home_id)")
 
+                        if current_version < 11:
+                            logger.info("[DB] Migrating to v11: adding extended properties to sensor_logs")
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sensor_logs'")
+                            if cursor.fetchone():
+                                cursor.execute("PRAGMA table_info(sensor_logs)")
+                                existing_cols = {col[1] for col in cursor.fetchall()}
+                                sensor_logs_new_cols = [
+                                    ("battery", "INTEGER"),
+                                    ("rssi", "INTEGER"),
+                                    ("signal_level", "INTEGER"),
+                                    ("switch_state", "INTEGER"),
+                                    ("contact_state", "INTEGER"),
+                                    ("motion_state", "INTEGER"),
+                                    ("gas_state", "INTEGER"),
+                                    ("smoke_state", "INTEGER"),
+                                    ("water_state", "INTEGER"),
+                                    ("alarm_state", "INTEGER"),
+                                    ("tamper_state", "INTEGER"),
+                                    ("temperature", "REAL"),
+                                    ("humidity", "REAL"),
+                                    ("co2", "REAL"),
+                                    ("pm25", "REAL"),
+                                    ("pm10", "REAL"),
+                                    ("hcho", "REAL"),
+                                    ("sensor_life_status", "INTEGER"),
+                                    ("raw_properties", "TEXT"),
+                                ]
+                                for col_name, col_type in sensor_logs_new_cols:
+                                    if col_name not in existing_cols:
+                                        cursor.execute(f"ALTER TABLE sensor_logs ADD COLUMN {col_name} {col_type}")
+                                        logger.info("[DB] Added column %s to sensor_logs table", col_name)
+
+                        if current_version < 12:
+                            logger.info("[DB] Migrating to v12: creating sensor_log_properties table for dynamic attributes")
+                            self._create_sensor_log_properties_table(conn)
+
+                        if current_version < 13:
+                            logger.info("[DB] Migrating to v13: adding unit column to sensor_log_properties")
+                            cursor = conn.cursor()
+                            cursor.execute("PRAGMA table_info(sensor_log_properties)")
+                            existing_cols = {col[1] for col in cursor.fetchall()}
+                            if "unit" not in existing_cols:
+                                cursor.execute("ALTER TABLE sensor_log_properties ADD COLUMN unit TEXT")
+                                logger.info("[DB] Added column unit to sensor_log_properties table")
+
                         conn.execute(f"PRAGMA user_version = {_DB_SCHEMA_VERSION}")
                         conn.commit()
                         logger.info("[DB] Schema migration committed, version=%d", _DB_SCHEMA_VERSION)
@@ -210,6 +256,7 @@ class SQLiteConnector:
         conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         conn.execute("PRAGMA journal_mode=WAL")
         self._create_sensor_logs_table(conn)
+        self._create_sensor_log_properties_table(conn)
         self._create_events_table(conn)
         self._create_rules_table(conn)
         self._create_kv_table(conn)
@@ -229,6 +276,7 @@ class SQLiteConnector:
             CREATE TABLE IF NOT EXISTS sensor_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 did TEXT NOT NULL,
+                product_id TEXT,
                 sensor_type TEXT NOT NULL,
                 value REAL NOT NULL,
                 unit TEXT,
@@ -236,14 +284,53 @@ class SQLiteConnector:
                 room_name TEXT,
                 home_id TEXT,
                 timestamp TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                battery INTEGER,
+                rssi INTEGER,
+                signal_level INTEGER,
+                switch_state INTEGER,
+                contact_state INTEGER,
+                motion_state INTEGER,
+                gas_state INTEGER,
+                smoke_state INTEGER,
+                water_state INTEGER,
+                alarm_state INTEGER,
+                tamper_state INTEGER,
+                temperature REAL,
+                humidity REAL,
+                co2 REAL,
+                pm25 REAL,
+                pm10 REAL,
+                hcho REAL,
+                sensor_life_status INTEGER,
+                raw_properties TEXT
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_logs_did ON sensor_logs(did)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_logs_timestamp ON sensor_logs(timestamp DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_logs_did_ts ON sensor_logs(did, timestamp DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_logs_home ON sensor_logs(home_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_logs_product ON sensor_logs(product_id)")
         logger.info("[DB] sensor_logs table created successfully")
+
+    def _create_sensor_log_properties_table(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sensor_log_properties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                log_id INTEGER NOT NULL,
+                property_id TEXT NOT NULL,
+                property_name TEXT,
+                value TEXT NOT NULL,
+                value_type TEXT,
+                unit TEXT,
+                FOREIGN KEY (log_id) REFERENCES sensor_logs(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_log_prop_log_id ON sensor_log_properties(log_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_log_prop_property ON sensor_log_properties(property_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sensor_log_prop_log_prop ON sensor_log_properties(log_id, property_id)")
+        logger.info("[DB] sensor_log_properties table created successfully")
 
     def _create_events_table(self, conn: sqlite3.Connection) -> None:
         cursor = conn.cursor()
@@ -356,6 +443,7 @@ class SQLiteConnector:
                 status TEXT NOT NULL,
                 description TEXT,
                 accuracy REAL DEFAULT 0,
+                model_path TEXT,
                 last_deployed TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP

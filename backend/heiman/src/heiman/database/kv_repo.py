@@ -10,8 +10,21 @@ logger = logging.getLogger(__name__)
 class KVRepo:
     def __init__(self):
         self.db_connector = get_db_connector()
-        self.cache = self.get_all_as_dict()
-        logger.info("[DB] KVRepo init, keys: %s", list(self.cache.keys()))
+        self.cache = {}
+        self._init_cache()
+
+    def _init_cache(self):
+        for attempt in range(3):
+            try:
+                self.cache = self.get_all_as_dict()
+                logger.info("[DB] KVRepo init, keys: %s", list(self.cache.keys()))
+                return
+            except Exception as e:
+                logger.warning("[DB] KVRepo init attempt %d failed: %s", attempt + 1, e)
+                if attempt < 2:
+                    import time
+                    time.sleep(0.5)
+        logger.error("[DB] KVRepo init failed after 3 attempts")
 
     def set(self, key: str, value: str) -> bool:
         try:

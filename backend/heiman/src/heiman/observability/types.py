@@ -49,7 +49,7 @@ class IdentityTrace:
 
 
 @dataclass(frozen=True)
-class OmniTrace:
+class HeimanTrace:
     ms: float
     error_code: str | None = None
     retry_count: int = 0
@@ -126,7 +126,7 @@ class DeviceTraceRecord:
     decode: DecodeTrace
     gate: GateTrace
     identity: IdentityTrace | None = None
-    omni: OmniTrace | None = None
+    heiman: HeimanTrace | None = None
     dropped_windows_count: int = 0
     overflow_count: int = 0
     max_buffer_depth: int = 0
@@ -159,10 +159,10 @@ class DeviceTraceRecord:
         }
         if self.identity is not None:
             row["identity_ms"] = self.identity.ms
-        if self.omni is not None:
-            row["omni_ms"] = self.omni.ms
-            row["omni_error_code"] = self.omni.error_code
-            row["omni_retry_count"] = self.omni.retry_count
+        if self.heiman is not None:
+            row["heiman_ms"] = self.heiman.ms
+            row["heiman_error_code"] = self.heiman.error_code
+            row["heiman_retry_count"] = self.heiman.retry_count
         return row
 
 
@@ -189,9 +189,9 @@ class CycleTraceRecord:
     gate_video_pass: bool
     gate_audio_pass: bool
     identity_ms: float
-    omni_ms: float
-    omni_call_count: int
-    omni_error_count: int
+    heiman_ms: float
+    heiman_call_count: int
+    heiman_error_count: int
     dropped_windows_total: int = 0
     overflow_count_total: int = 0
     gate_hold_pass: bool = False
@@ -222,9 +222,9 @@ class CycleTraceRecord:
             "gate_audio_pass": int(self.gate_audio_pass),
             "gate_hold_pass": int(self.gate_hold_pass),
             "identity_ms": self.identity_ms,
-            "omni_ms": self.omni_ms,
-            "omni_call_count": self.omni_call_count,
-            "omni_error_count": self.omni_error_count,
+            "heiman_ms": self.heiman_ms,
+            "heiman_call_count": self.heiman_call_count,
+            "heiman_error_count": self.heiman_error_count,
             "dropped_windows_total": self.dropped_windows_total,
             "overflow_count_total": self.overflow_count_total,
             "cycle_error_msg": self.cycle_error_msg,

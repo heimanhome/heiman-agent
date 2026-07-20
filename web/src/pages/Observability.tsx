@@ -231,7 +231,7 @@ export function Observability() {
                   <th className="text-left px-4 py-3 text-xs text-[#6b7a9a] uppercase">Devices</th>
                   <th className="text-left px-4 py-3 text-xs text-[#6b7a9a] uppercase">Cycle (ms)</th>
                   <th className="text-left px-4 py-3 text-xs text-[#6b7a9a] uppercase">Pipeline (ms)</th>
-                  <th className="text-left px-4 py-3 text-xs text-[#6b7a9a] uppercase">Omni Calls</th>
+                  <th className="text-left px-4 py-3 text-xs text-[#6b7a9a] uppercase">Heiman Calls</th>
                 </tr>
               </thead>
               <tbody>
@@ -245,8 +245,8 @@ export function Observability() {
                   traces.map((trace) => {
                     const cycleMs = trace.cycle_total_ms ?? 0;
                     const pipelineMs = trace.pipeline_total_ms ?? 0;
-                    const omniCalls = trace.omni_call_count ?? 0;
-                    const omniErrors = trace.omni_error_count ?? 0;
+                    const heimanCalls = trace.heiman_call_count ?? 0;
+                    const heimanErrors = trace.heiman_error_count ?? 0;
                     return (
                       <tr key={trace.trace_id} className="border-t border-[#2a3142] hover:bg-[#2a3142]">
                         <td className="px-4 py-3">
@@ -257,9 +257,9 @@ export function Observability() {
                         <td className="px-4 py-3 text-sm text-white">{cycleMs.toFixed(1)}</td>
                         <td className="px-4 py-3 text-sm text-white">{pipelineMs.toFixed(1)}</td>
                         <td className="px-4 py-3 text-sm">
-                          <span className={omniErrors > 0 ? 'text-red-400' : 'text-green-400'}>
-                            {omniCalls}
-                            {omniErrors > 0 && ` (${omniErrors} errors)`}
+                          <span className={heimanErrors > 0 ? 'text-red-400' : 'text-green-400'}>
+                            {heimanCalls}
+                            {heimanErrors > 0 && ` (${heimanErrors} errors)`}
                           </span>
                         </td>
                       </tr>

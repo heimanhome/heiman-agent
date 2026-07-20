@@ -33,6 +33,7 @@ class SystemLogRepo:
         user: Optional[str] = None,
         search: Optional[str] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[dict]:
         try:
             query = "SELECT * FROM system_logs WHERE 1=1"
@@ -52,13 +53,44 @@ class SystemLogRepo:
                 search_pattern = f"%{search}%"
                 params += (search_pattern, search_pattern, search_pattern)
 
-            query += " ORDER BY time DESC LIMIT ?"
-            params += (limit,)
+            query += " ORDER BY time DESC LIMIT ? OFFSET ?"
+            params += (limit, offset)
 
             rows = self._db.execute_query(query, params)
             return [dict(row) for row in rows]
         except Exception as e:
             logger.error("[LOG] Failed to query system logs: %s", e)
+            raise
+
+    def count(
+        self,
+        level: Optional[str] = None,
+        action: Optional[str] = None,
+        user: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> int:
+        try:
+            query = "SELECT COUNT(*) as count FROM system_logs WHERE 1=1"
+            params: tuple = ()
+
+            if level:
+                query += " AND level = ?"
+                params += (level,)
+            if action:
+                query += " AND action LIKE ?"
+                params += (f"%{action}%",)
+            if user:
+                query += " AND user LIKE ?"
+                params += (f"%{user}%",)
+            if search:
+                query += " AND (message LIKE ? OR action LIKE ? OR user LIKE ?)"
+                search_pattern = f"%{search}%"
+                params += (search_pattern, search_pattern, search_pattern)
+
+            rows = self._db.execute_query(query, params)
+            return rows[0]["count"] if rows else 0
+        except Exception as e:
+            logger.error("[LOG] Failed to count system logs: %s", e)
             raise
 
     def get_error_logs(self, search: Optional[str] = None, limit: int = 100) -> list[dict]:
@@ -78,7 +110,7 @@ class SystemLogRepo:
             logger.error("[LOG] Failed to get log by id: %s", e)
             raise
 
-    def count(self, level: Optional[str] = None) -> int:
+    def count(self, level: Optional[str] = None, action: Optional[str] = None, user: Optional[str] = None, search: Optional[str] = None) -> int:
         try:
             query = "SELECT COUNT(*) as count FROM system_logs WHERE 1=1"
             params: tuple = ()
@@ -86,6 +118,18 @@ class SystemLogRepo:
             if level:
                 query += " AND level = ?"
                 params += (level,)
+
+            if action:
+                query += " AND action = ?"
+                params += (action,)
+
+            if user:
+                query += " AND user = ?"
+                params += (user,)
+
+            if search:
+                query += " AND (message LIKE ? OR action LIKE ?)"
+                params += (f"%{search}%", f"%{search}%")
 
             rows = self._db.execute_query(query, params)
             return rows[0]["count"] if rows else 0

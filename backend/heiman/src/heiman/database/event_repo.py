@@ -98,6 +98,28 @@ def _enrich_event_row(row_dict: dict) -> dict:
         
         row_dict["sensor_type"] = sensor_type
     
+    if row_dict.get("sensor_type") == "contact":
+        payload = raw_data.get("payload", {})
+        if isinstance(payload, dict):
+            data = payload.get("data", {})
+            if isinstance(data, dict):
+                switch_state = data.get("SwitchState", data.get("contactState", data.get("ContactState")))
+                if switch_state is not None:
+                    try:
+                        val_int = int(float(switch_state))
+                        if val_int in [0, 2]:
+                            row_dict["contact_state_desc"] = "门窗关闭"
+                        elif val_int in [1, 3]:
+                            row_dict["contact_state_desc"] = "门窗打开"
+                        else:
+                            row_dict["contact_state_desc"] = str(switch_state)
+                    except (ValueError, TypeError):
+                        row_dict["contact_state_desc"] = str(switch_state)
+    
+    if "acknowledged" in row_dict:
+        row_dict["acknowledged"] = bool(row_dict["acknowledged"])
+        row_dict["acknowledged_desc"] = "已确认" if row_dict["acknowledged"] else "待确认"
+    
     return row_dict
 
 
@@ -182,6 +204,7 @@ class EventRepo:
         after: str | None = None,
         before: str | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[dict]:
         try:
             query = "SELECT * FROM events WHERE 1=1"
@@ -215,8 +238,9 @@ class EventRepo:
                 query += " AND timestamp <= ?"
                 params.append(before)
             
-            query += " ORDER BY timestamp DESC LIMIT ?"
+            query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
             params.append(limit)
+            params.append(offset)
             
             results = self.db_connector.execute_query(query, tuple(params))
             
@@ -230,6 +254,54 @@ class EventRepo:
             return result
         except Exception as e:
             logger.error("[DB] Failed to query events: error=%s", e)
+            raise
+
+    def count(
+        self,
+        event_type: str | None = None,
+        level: str | None = None,
+        did: str | None = None,
+        home_id: str | None = None,
+        acknowledged: bool | None = None,
+        after: str | None = None,
+        before: str | None = None,
+    ) -> int:
+        try:
+            query = "SELECT COUNT(*) as count FROM events WHERE 1=1"
+            params: list = []
+            
+            if event_type:
+                query += " AND event_type = ?"
+                params.append(event_type)
+            
+            if level:
+                query += " AND level = ?"
+                params.append(level)
+            
+            if did:
+                query += " AND did = ?"
+                params.append(did)
+            
+            if home_id:
+                query += " AND home_id = ?"
+                params.append(home_id)
+            
+            if acknowledged is not None:
+                query += " AND acknowledged = ?"
+                params.append(1 if acknowledged else 0)
+            
+            if after:
+                query += " AND timestamp >= ?"
+                params.append(after)
+            
+            if before:
+                query += " AND timestamp <= ?"
+                params.append(before)
+            
+            results = self.db_connector.execute_query(query, tuple(params))
+            return results[0]["count"] if results else 0
+        except Exception as e:
+            logger.error("[DB] Failed to count events: error=%s", e)
             raise
 
     def get_by_id(self, event_id: str) -> dict | None:

@@ -3,8 +3,25 @@ import logging
 import os
 from typing import Dict, Optional, Any, List
 
-
 logger = logging.getLogger(__name__)
+
+
+def _record_token_usage(model: str, usage: dict, usage_type: str = "api") -> None:
+    try:
+        from heiman.database.token_usage_repo import get_token_usage_repo
+        repo = get_token_usage_repo()
+        prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
+        if prompt_tokens > 0 or completion_tokens > 0:
+            repo.record_usage(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                usage_type=usage_type,
+            )
+            logger.debug(f"[TOKEN] Recorded usage: model={model}, prompt={prompt_tokens}, completion={completion_tokens}")
+    except Exception as e:
+        logger.warning(f"[TOKEN] Failed to record token usage: {e}")
 
 
 class EdgeInferenceEngine:
@@ -82,20 +99,29 @@ class EdgeInferenceEngine:
 
     async def _init_onnx(self, model_name: str, config: Dict) -> Any:
         try:
-            import onnxruntime as ort
+            from heiman.perception.inference import make_session
 
             model_path = config.get("model_path", f"{model_name}.onnx")
-            providers = ["CPUExecutionProvider"]
+            use_gpu = config.get("use_gpu", False)
+            num_threads = config.get("num_threads", None)
 
-            if config.get("use_gpu", False):
-                providers.insert(0, "CUDAExecutionProvider")
+            session = make_session(model_path, use_gpu=use_gpu, num_threads=num_threads)
 
-            session = ort.InferenceSession(model_path, providers=providers)
+            input_info = []
+            for inp in session.get_inputs():
+                input_info.append({
+                    "name": inp.name,
+                    "shape": inp.shape,
+                    "type": inp.type,
+                })
+
+            output_names = [output.name for output in session.get_outputs()]
 
             return {
                 "type": "onnx",
                 "session": session,
-                "providers": providers,
+                "input_info": input_info,
+                "output_names": output_names,
             }
         except ImportError:
             logger.warning("onnxruntime not installed")
@@ -145,10 +171,14 @@ class EdgeInferenceEngine:
                 response.raise_for_status()
                 result = response.json()
 
+            usage = result.get("usage", {})
+            if usage:
+                _record_token_usage(model_name, usage)
+
             return {
                 "success": True,
                 "response": result.get("response", ""),
-                "usage": result.get("usage", {}),
+                "usage": usage,
             }
         except Exception as e:
             logger.error(f"Ollama inference failed: {e}")
@@ -181,18 +211,41 @@ class EdgeInferenceEngine:
     async def _infer_onnx(self, model_info: Dict, prompt: str, params: Dict) -> Dict[str, Any]:
         try:
             session = model_info["session"]
+            input_info = model_info.get("input_info", [])
+            output_names = model_info.get("output_names", None)
 
             import numpy as np
-            input_ids = np.random.randint(0, 10000, (1, 128)).astype(np.int64)
-            attention_mask = np.ones((1, 128), dtype=np.int64)
 
-            outputs = session.run(None, {"input_ids": input_ids, "attention_mask": attention_mask})
+            inputs = {}
+            for inp in input_info:
+                input_name = inp["name"]
+                input_shape = inp["shape"]
+                input_type = inp["type"]
 
-            return {
-                "success": True,
-                "response": "ONNX inference completed",
-                "output_shape": outputs[0].shape,
-            }
+                if input_name in params:
+                    inputs[input_name] = np.array(params[input_name], dtype=np.float32)
+                else:
+                    dtype_map = {
+                        "tensor(float)": np.float32,
+                        "tensor(int64)": np.int64,
+                        "tensor(int32)": np.int32,
+                    }
+                    dtype = dtype_map.get(input_type, np.float32)
+                    shape = tuple(d if d > 0 else 1 for d in input_shape)
+                    inputs[input_name] = np.zeros(shape, dtype=dtype)
+
+            outputs = session.run(output_names, inputs)
+
+            result = {"success": True, "outputs": []}
+            for i, output in enumerate(outputs):
+                result["outputs"].append({
+                    "index": i,
+                    "shape": output.shape,
+                    "dtype": str(output.dtype),
+                    "data": output.tolist() if output.size < 100 else "large_array",
+                })
+
+            return result
         except Exception as e:
             logger.error(f"ONNX inference failed: {e}")
             return {"success": False, "error": str(e)}

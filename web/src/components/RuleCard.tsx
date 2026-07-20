@@ -37,37 +37,33 @@ export function RuleCard({ rule, onToggle, onEdit, onDelete }: RuleCardProps) {
     .join('、');
 
   return (
-    <div className="bg-[#0f2137] rounded-xl p-5 border border-white/5 transition-all duration-300 hover:border-[#00d4ff]/30 hover:shadow-lg hover:shadow-[#00d4ff]/10">
+    <div className="bg-white dark:bg-[#0f2137] rounded-xl p-5 border border-gray-200 dark:border-white/5 transition-all duration-300 hover:border-[#00d4ff]/30 hover:shadow-lg hover:shadow-[#00d4ff]/10">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            rule.enabled ? 'bg-[#00ff88]/20' : 'bg-[#6b7a9a]/20'
-          }`}>
-            <Settings className={`w-5 h-5 ${rule.enabled ? 'text-[#00ff88]' : 'text-[#6b7a9a]'}`} />
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-100 dark:bg-gray-800">
+            <Settings className="w-5 h-5 text-gray-900 dark:text-white" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-white">{rule.name}</h3>
-            <p className="text-xs text-[#6b7a9a]">{rule.description}</p>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{rule.name}</h3>
+            <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">{rule.description}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => onToggle?.(!rule.enabled)}
-            className={`p-2 rounded-lg transition-colors ${
-              rule.enabled ? 'bg-[#00ff88]/20 text-[#00ff88]' : 'bg-white/5 text-[#6b7a9a]'
-            } hover:bg-white/10`}
+            className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
           >
             {rule.enabled ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
           </button>
           <button
             onClick={onEdit}
-            className="p-2 rounded-lg bg-white/5 text-[#6b7a9a] hover:bg-[#00d4ff]/10 hover:text-[#00d4ff] transition-colors"
+            className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
           >
             <Edit3 className="w-5 h-5" />
           </button>
           <button
             onClick={onDelete}
-            className="p-2 rounded-lg bg-white/5 text-[#6b7a9a] hover:bg-[#ff4757]/10 hover:text-[#ff4757] transition-colors"
+            className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
           >
             <Trash2 className="w-5 h-5" />
           </button>
@@ -76,23 +72,21 @@ export function RuleCard({ rule, onToggle, onEdit, onDelete }: RuleCardProps) {
 
       <div className="space-y-3">
         <div className="flex items-start gap-2">
-          <span className="text-xs text-[#6b7a9a] flex-shrink-0 w-20">条件:</span>
-          <span className="text-sm text-white">{conditionText}</span>
+          <span className="text-xs text-gray-500 dark:text-[#6b7a9a] flex-shrink-0 w-20">条件:</span>
+          <span className="text-sm text-gray-900 dark:text-white">{conditionText}</span>
         </div>
         <div className="flex items-start gap-2">
-          <span className="text-xs text-[#6b7a9a] flex-shrink-0 w-20">动作:</span>
-          <span className="text-sm text-white">{actionText}</span>
+          <span className="text-xs text-gray-500 dark:text-[#6b7a9a] flex-shrink-0 w-20">动作:</span>
+          <span className="text-sm text-gray-900 dark:text-white">{actionText}</span>
         </div>
         <div className="flex items-start gap-2">
-          <span className="text-xs text-[#6b7a9a] flex-shrink-0 w-20">冷却时间:</span>
-          <span className="text-sm text-white">{rule.cooldown_minutes} 分钟</span>
+          <span className="text-xs text-gray-500 dark:text-[#6b7a9a] flex-shrink-0 w-20">冷却时间:</span>
+          <span className="text-sm text-gray-900 dark:text-white">{rule.cooldown_minutes} 分钟</span>
         </div>
       </div>
 
       <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
-        <span className={`text-xs font-medium ${
-          rule.enabled ? 'text-[#00ff88]' : 'text-[#6b7a9a]'
-        }`}>
+        <span className="text-xs font-medium text-gray-900 dark:text-white">
           {rule.enabled ? '已启用' : '已禁用'}
         </span>
         <span className="text-xs text-[#4a5568]">

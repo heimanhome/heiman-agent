@@ -36,8 +36,18 @@ class EventBus:
             self._subscribers.discard(queue)
         logger.debug("SSE subscriber disconnected, total: %d", len(self._subscribers))
 
-    async def publish(self, event_type: str, data: dict[str, Any]) -> None:
-        """Publish an event to all subscribers."""
+    async def publish(self, event_type: str | dict, data: dict[str, Any] | None = None) -> None:
+        """Publish an event to all subscribers.
+        
+        Supports two calling formats:
+        1. publish(event_type: str, data: dict)
+        2. publish({"event": "...", "data": {...}})
+        """
+        if isinstance(event_type, dict):
+            event_dict = event_type
+            event_type = event_dict.get("event", "message")
+            data = event_dict.get("data", {})
+        
         event = {
             "id": datetime.now().timestamp(),
             "event": event_type,

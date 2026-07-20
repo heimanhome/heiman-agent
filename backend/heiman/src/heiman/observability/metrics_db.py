@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS traces (
   gate_audio_pass       INTEGER,
   gate_hold_pass        INTEGER,
   identity_ms           REAL,
-  omni_ms               REAL,
-  omni_call_count       INTEGER,
-  omni_error_count      INTEGER DEFAULT 0,
+  heiman_ms               REAL,
+  heiman_call_count       INTEGER,
+  heiman_error_count      INTEGER DEFAULT 0,
   timing_detail         TEXT,
   dropped_windows_total INTEGER DEFAULT 0,
   overflow_count_total  INTEGER DEFAULT 0,
@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS traces_device (
   gate_video_score  REAL,
   gate_audio_energy REAL,
   identity_ms       REAL,
-  omni_ms                REAL,
-  omni_error_code        TEXT,
-  omni_retry_count       INTEGER DEFAULT 0,
+  heiman_ms                REAL,
+  heiman_error_code        TEXT,
+  heiman_retry_count       INTEGER DEFAULT 0,
   dropped_windows_count  INTEGER DEFAULT 0,
   overflow_count         INTEGER DEFAULT 0,
   max_buffer_depth       INTEGER DEFAULT 0,
@@ -132,8 +132,8 @@ SELECT
   CASE WHEN window_duration_ms > 0
        THEN (cycle_total_ms + COALESCE(in_delay_ms, 0) + COALESCE(stream_lag_ms, 0)) / window_duration_ms
        ELSE NULL END AS rtf_stream_e2e,
-  CASE WHEN window_duration_ms > 0 AND omni_ms IS NOT NULL
-       THEN omni_ms / window_duration_ms ELSE NULL END AS rtf_omni,
+  CASE WHEN window_duration_ms > 0 AND heiman_ms IS NOT NULL
+       THEN heiman_ms / window_duration_ms ELSE NULL END AS rtf_heiman,
   CASE WHEN gate_video_pass = 1 OR gate_audio_pass = 1 OR gate_hold_pass = 1 THEN 1 ELSE 0 END AS gate_passed
 FROM traces t;
 """

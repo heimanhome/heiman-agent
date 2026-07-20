@@ -72,24 +72,24 @@ def admin_log_pack(pretty):
         sys.exit(1)
 
 
-@admin_group.command("omni-config")
+@admin_group.command("heiman-config")
 @click.option("--pretty", is_flag=True)
-def admin_omni_config(pretty):
-    """获取 Omni 模型配置。"""
-    data = api_get("/api/admin/omni-config")
+def admin_heiman_config(pretty):
+    """获取 Heiman 模型配置。"""
+    data = api_get("/api/admin/heiman-config")
     print_result(data, pretty)
 
 
-@admin_group.command("omni-save")
+@admin_group.command("heiman-save")
 @click.option("--label", required=True, help="档案名称")
 @click.option("--base-url", required=True, help="Base URL")
 @click.option("--model", required=True, help="模型名称")
 @click.option("--api-key", help="API Key")
 @click.option("--activate", is_flag=True, help="激活此配置")
 @click.option("--pretty", is_flag=True)
-def admin_omni_save(label, base_url, model, api_key, activate, pretty):
-    """保存 Omni 模型配置。"""
-    data = api_put("/api/admin/omni-config", {
+def admin_heiman_save(label, base_url, model, api_key, activate, pretty):
+    """保存 Heiman 模型配置。"""
+    data = api_put("/api/admin/heiman-config", {
         "label": label,
         "base_url": base_url,
         "model": model,
@@ -99,32 +99,32 @@ def admin_omni_save(label, base_url, model, api_key, activate, pretty):
     print_result(data, pretty)
 
 
-@admin_group.command("omni-activate")
+@admin_group.command("heiman-activate")
 @click.option("--label", required=True, help="档案名称")
 @click.option("--pretty", is_flag=True)
-def admin_omni_activate(label, pretty):
-    """激活 Omni 模型配置。"""
-    data = api_post("/api/admin/omni-config/activate", {"label": label})
+def admin_heiman_activate(label, pretty):
+    """激活 Heiman 模型配置。"""
+    data = api_post("/api/admin/heiman-config/activate", {"label": label})
     print_result(data, pretty)
 
 
-@admin_group.command("omni-delete")
+@admin_group.command("heiman-delete")
 @click.option("--label", required=True, help="档案名称")
 @click.option("--pretty", is_flag=True)
-def admin_omni_delete(label, pretty):
-    """删除 Omni 模型配置。"""
-    data = api_post("/api/admin/omni-config/delete", {"label": label})
+def admin_heiman_delete(label, pretty):
+    """删除 Heiman 模型配置。"""
+    data = api_post("/api/admin/heiman-config/delete", {"label": label})
     print_result(data, pretty)
 
 
-@admin_group.command("omni-test")
+@admin_group.command("heiman-test")
 @click.option("--model", help="模型名称")
 @click.option("--base-url", help="Base URL")
 @click.option("--api-key", help="API Key")
 @click.option("--label", help="档案名称")
 @click.option("--pretty", is_flag=True)
-def admin_omni_test(model, base_url, api_key, label, pretty):
-    """测试 Omni 配置连通性。"""
+def admin_heiman_test(model, base_url, api_key, label, pretty):
+    """测试 Heiman 配置连通性。"""
     payload = {}
     if model:
         payload["model"] = model
@@ -143,14 +143,14 @@ def admin_omni_test(model, base_url, api_key, label, pretty):
         asyncio.set_event_loop(loop)
 
     try:
-        data = loop.run_until_complete(_test_omni_async(payload))
+        data = loop.run_until_complete(_test_heiman_async(payload))
         print_result(data, pretty)
     except Exception as e:
         print(json.dumps({"code": 500, "message": f"test failed: {e}"}, ensure_ascii=False), file=sys.stderr)
         sys.exit(1)
 
 
-async def _test_omni_async(payload: dict) -> dict:
+async def _test_heiman_async(payload: dict) -> dict:
     import httpx
     base_url = payload.get("base_url")
     api_key = payload.get("api_key")

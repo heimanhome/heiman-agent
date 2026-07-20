@@ -63,7 +63,7 @@ export const AccountButton = forwardRef<HTMLButtonElement, Props>(
           className="relative inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors focus-visible:ring-2 focus-visible:ring-[#00d4ff] focus-visible:outline-none overflow-hidden"
           style={{ width: 32, height: 32 }}
         >
-          <span className="text-sm text-white">
+          <span className="text-sm text-gray-900 dark:text-white">
             {bound ? (accountName?.[0]?.toUpperCase() ?? 'H') : '?'}
           </span>
           <span
@@ -84,16 +84,16 @@ export const AccountButton = forwardRef<HTMLButtonElement, Props>(
         {menuOpen && bound && (
           <div
             role="menu"
-            className={`absolute left-0 z-20 min-w-[220px] rounded-lg bg-[#0f2137] border border-white/10 overflow-hidden ${
+            className={`absolute left-0 z-20 min-w-[220px] rounded-lg bg-white dark:bg-[#0f2137] border border-white/10 overflow-hidden ${
               popoverPlacement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
             }`}
           >
             <div className="px-3 py-2 border-b border-white/10">
-              <div className="text-sm text-white truncate">
+              <div className="text-sm text-gray-900 dark:text-white truncate">
                 {accountName ?? t('account.name')}
               </div>
               {userUid && (
-                <div className="text-xs text-[#6b7a9a] truncate">
+                <div className="text-xs text-gray-500 dark:text-[#6b7a9a] truncate">
                   uid {userUid}
                 </div>
               )}
@@ -104,7 +104,7 @@ export const AccountButton = forwardRef<HTMLButtonElement, Props>(
                 setMenuOpen(false);
                 onBind();
               }}
-              className="block w-full text-left text-sm px-3 py-2 text-white hover:bg-white/10 transition-colors"
+              className="block w-full text-left text-sm px-3 py-2 text-gray-900 dark:text-white hover:bg-white/10 transition-colors"
             >
               {t('rebind')}
             </button>
@@ -132,27 +132,27 @@ export const AccountButton = forwardRef<HTMLButtonElement, Props>(
             <div
               role="dialog"
               aria-modal="true"
-              className="w-[90%] max-w-md bg-[#0f2137] border border-white/10 rounded-xl p-6"
+              className="w-[90%] max-w-md bg-white dark:bg-[#0f2137] border border-white/10 rounded-xl p-6"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start justify-between mb-3">
-                <h2 className="text-lg font-semibold text-white">{t('confirmUnbind')}</h2>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('confirmUnbind')}</h2>
                 <button
                   type="button"
                   onClick={() => setConfirmUnbind(false)}
-                  className="rounded-full p-1 text-[#6b7a9a] hover:text-white"
+                  className="rounded-full p-1 text-gray-500 dark:text-[#6b7a9a] hover:text-gray-900 dark:text-white"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <p className="text-sm text-[#6b7a9a] mb-6">
+              <p className="text-sm text-gray-500 dark:text-[#6b7a9a] mb-6">
                 {t('confirmUnbindBody')}
               </p>
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setConfirmUnbind(false)}
-                  className="text-sm px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white hover:bg-white/10"
+                  className="text-sm px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-gray-900 dark:text-white hover:bg-white/10"
                 >
                   {t('cancel')}
                 </button>
@@ -167,7 +167,7 @@ export const AccountButton = forwardRef<HTMLButtonElement, Props>(
                       setConfirmUnbind(false);
                     }
                   }}
-                  className="text-sm px-4 py-2 rounded-lg bg-[#ff4757] text-white hover:bg-[#ff4757]/90"
+                  className="text-sm px-4 py-2 rounded-lg bg-[#ff4757] text-gray-900 dark:text-white hover:bg-[#ff4757]/90"
                 >
                   {t('unbind')}
                 </button>

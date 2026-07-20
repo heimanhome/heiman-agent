@@ -56,6 +56,7 @@ interface AppState {
   setTaskEnabled: (taskId: string, enabled: boolean) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   runStatusCheck: () => Promise<void>;
+  updateSensor: (deviceId: string, properties: Record<string, any>) => void;
 }
 
 const CACHE_TTL = 60 * 1000;
@@ -479,5 +480,71 @@ export const useAppStore = create<AppState>((set, get) => ({
   runStatusCheck: async () => {
     console.log('[AppStore] Running status check...');
     await statusChecker.runFullCheck();
+  },
+  updateSensor: (deviceId: string, properties: Record<string, any>) => {
+    set((state) => {
+      const sensorIndex = state.sensors.findIndex((s) => s.did === deviceId);
+      if (sensorIndex === -1) {
+        return state;
+      }
+
+      const existingSensor = state.sensors[sensorIndex];
+      const updatedSensor: SensorData = {
+        ...existingSensor,
+        timestamp: new Date().toISOString(),
+        status: 'normal',
+      };
+
+      const propertyMapping: Record<string, keyof SensorData> = {
+        ContactState: 'contactState',
+        SwitchState: 'switchState',
+        MotionState: 'motionState',
+        GasState: 'gasState',
+        SmokeState: 'smokeState',
+        WaterState: 'waterState',
+        AlarmState: 'alarmState',
+        TamperState: 'tamperState',
+        SensorLifeStatus: 'sensorLifeStatus',
+        RSSI: 'rssi',
+        Battery: 'battery',
+        CurrentTemperature: 'temperature',
+        CurrentHumidity: 'humidity',
+        Temperature: 'temperature',
+        Humidity: 'humidity',
+        CO2: 'co2',
+        PM25: 'pm25',
+        PM10: 'pm10' as keyof SensorData,
+        HCHO: 'hcho',
+      };
+
+      let newValue: number | undefined;
+
+      for (const [mqttKey, sensorKey] of Object.entries(propertyMapping)) {
+        if (properties[mqttKey] !== undefined && properties[mqttKey] !== null) {
+          const value = properties[mqttKey];
+          const numValue = typeof value === 'number' ? value : parseFloat(value);
+          (updatedSensor as unknown as Record<string, number | null | undefined>)[sensorKey] = numValue;
+          
+          if (sensorKey === 'temperature' || sensorKey === 'humidity') {
+            newValue = numValue;
+          }
+        }
+      }
+
+      if (properties.value !== undefined && properties.value !== null) {
+        newValue = typeof properties.value === 'number' 
+          ? properties.value 
+          : parseFloat(properties.value);
+      }
+
+      if (newValue !== undefined) {
+        updatedSensor.value = newValue;
+      }
+
+      return {
+        ...state,
+        sensors: state.sensors.map((s, i) => (i === sensorIndex ? updatedSensor : s)),
+      };
+    });
   },
 }));

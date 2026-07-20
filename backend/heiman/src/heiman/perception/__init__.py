@@ -1,6 +1,6 @@
 from heiman.perception.engine import PerceptionEngine
 from heiman.perception.identity import IdentityEngine
-from heiman.perception.omni import OmniLayer
+from heiman.perception.heiman import HeimanLayer
 from heiman.perception.collector import PerceptionCollector
 from heiman.perception.camera_adapter import CameraAdapter, CameraCollector
 from heiman.perception.asr_service import ASRService, MicrophoneCollector
@@ -10,7 +10,7 @@ from heiman.perception.edge_inference import EdgeInferenceEngine, QuantizationSe
 __all__ = [
     "PerceptionEngine",
     "IdentityEngine",
-    "OmniLayer",
+    "HeimanLayer",
     "PerceptionCollector",
     "CameraAdapter",
     "CameraCollector",

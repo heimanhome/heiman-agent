@@ -1,7 +1,12 @@
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_MODELS_DIR = str(
+    Path(__file__).resolve().parent.parent / "perception" / "models"
+)
 
 
 def initialize_system_logs(log_repo):
@@ -76,6 +81,7 @@ def initialize_models(model_repo):
                 "status": "deployed",
                 "description": "AI model for smoke detection using sensor data",
                 "accuracy": 98.5,
+                "model_path": f"{_MODELS_DIR}/smoke_detection.onnx",
                 "last_deployed": "2024-01-10",
             },
             {
@@ -86,6 +92,7 @@ def initialize_models(model_repo):
                 "status": "deployed",
                 "description": "Carbon monoxide level classification model",
                 "accuracy": 96.2,
+                "model_path": f"{_MODELS_DIR}/co_alert.onnx",
                 "last_deployed": "2024-01-08",
             },
             {
@@ -96,6 +103,7 @@ def initialize_models(model_repo):
                 "status": "training",
                 "description": "Temperature prediction model for next 24 hours",
                 "accuracy": 89.8,
+                "model_path": f"{_MODELS_DIR}/temp_forecast.onnx",
                 "last_deployed": None,
             },
             {
@@ -106,6 +114,7 @@ def initialize_models(model_repo):
                 "status": "not_deployed",
                 "description": "Water leak detection model",
                 "accuracy": 94.7,
+                "model_path": f"{_MODELS_DIR}/water_leak.onnx",
                 "last_deployed": None,
             },
         ]

@@ -37,7 +37,7 @@ PROPERTY_TO_SENSOR_TYPE = {
     "WaterSensorState": SensorType.WATER,
     "soaking_state": SensorType.WATER,
     "ContactState": SensorType.CONTACT,
-    "SwitchState": SensorType.CONTACT,
+    "SwitchState": SensorType.PLUG,
     "open_state": SensorType.CONTACT,
     "OF": SensorType.MOTION,
     "DetectState": SensorType.MOTION,
@@ -46,7 +46,6 @@ PROPERTY_TO_SENSOR_TYPE = {
     "pir": SensorType.MOTION,
     "Status": SensorType.PLUG,
     "OnOff": SensorType.PLUG,
-    "LightSwitch": SensorType.PLUG,
     "PowerSwitch": SensorType.PLUG,
     "ON": SensorType.PLUG,
     "actp": SensorType.PLUG,
@@ -72,7 +71,7 @@ PROPERTY_TO_SENSOR_TYPE = {
     "gas": SensorType.CO,
     "water": SensorType.WATER,
     "contact": SensorType.CONTACT,
-    "switch": SensorType.CONTACT,
+    "switch": SensorType.PLUG,
     "plug": SensorType.PLUG,
     "siren": SensorType.SIREN,
     "button": SensorType.BUTTON,
@@ -206,7 +205,7 @@ async def get_devices(
             devices = []
             for device in all_devices:
                 device_id = str(device.get("id", device.get("deviceId", "")))
-                device_name = device.get("name", device.get("deviceName", ""))
+                device_name = device.get("deviceName", device.get("name", ""))
                 room_id = str(device.get("roomId", ""))
                 room_name = device.get("roomName", "") or room_name_map.get(room_id, "")
 
@@ -493,6 +492,17 @@ async def get_devices(
                             unit = UNIT_MAP.get(st, "")
                             break
 
+                if sensor_type_str == "contact":
+                    if switch_state is not None:
+                        if switch_state in [0, 2]:
+                            value = "门窗关闭"
+                        elif switch_state in [1, 3]:
+                            value = "门窗打开"
+                        else:
+                            value = str(switch_state)
+                    else:
+                        value = ""
+                
                 devices.append({
                     "id": device_id,
                     "name": device_name,

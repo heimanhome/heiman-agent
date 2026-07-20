@@ -36,16 +36,16 @@ export function HeimanLoginDialog({ open, onSuccess }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="heiman-login-title"
-        className="w-[90%] max-w-md bg-[#0f2137] border border-white/10 rounded-2xl shadow-xl p-6 animate-in"
+        className="w-[90%] max-w-md bg-white dark:bg-[#0f2137] border border-white/10 rounded-2xl shadow-xl p-6 animate-in"
       >
         <div className="flex items-start justify-between mb-3">
-          <h2 id="heiman-login-title" className="text-xl font-bold text-white">
+          <h2 id="heiman-login-title" className="text-xl font-bold text-gray-900 dark:text-white">
             {t('login')}
           </h2>
           <button
             type="button"
             onClick={() => setError('')}
-            className="rounded-full p-1 text-[#6b7a9a] hover:text-white transition-colors"
+            className="rounded-full p-1 text-gray-500 dark:text-[#6b7a9a] hover:text-gray-900 dark:text-white transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -55,7 +55,7 @@ export function HeimanLoginDialog({ open, onSuccess }: Props) {
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#00d4ff] to-[#00ff88] flex items-center justify-center mx-auto mb-4">
             <Lock className="w-8 h-8 text-[#0a1628]" />
           </div>
-          <p className="text-[#6b7a9a]">{t('welcomeBack')}</p>
+          <p className="text-gray-500 dark:text-[#6b7a9a]">{t('welcomeBack')}</p>
         </div>
 
         {error && (
@@ -90,7 +90,7 @@ export function HeimanLoginDialog({ open, onSuccess }: Props) {
         </div>
 
         <div className="mt-6 text-center">
-          <p className="text-sm text-[#6b7a9a]">
+          <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">
             {t('loginHint')}
           </p>
         </div>

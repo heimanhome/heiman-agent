@@ -27,41 +27,44 @@ export function Sensors() {
     }
   }, [currentHomeId, fetchSensors]);
 
+  const nonSensorTypes = new Set(['gateway', 'remote']);
+
   const filteredSensors = sensors.filter((sensor) => {
+    const isSensor = !nonSensorTypes.has(sensor.sensor_type?.toLowerCase() || '');
     const matchesSearch = sensor.did.toLowerCase().includes(search.toLowerCase());
     const matchesType = filterType === 'all' || sensor.sensor_type === filterType;
     const matchesStatus = filterStatus === 'all' || sensor.status === filterStatus;
-    return matchesSearch && matchesType && matchesStatus;
+    return isSensor && matchesSearch && matchesType && matchesStatus;
   });
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">{t('sensors')}</h1>
-          <p className="text-sm text-[#6b7a9a]">{t('manageSensors')}</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('sensors')}</h1>
+          <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('manageSensors')}</p>
         </div>
       </div>
 
-      <div className="bg-[#0f2137] rounded-xl p-4 border border-white/5">
+      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-4 border border-gray-200 dark:border-white/5">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6b7a9a]" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-[#6b7a9a]" />
             <input
               type="text"
               placeholder={t('searchSensorId')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+              className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
             />
           </div>
           <div className="flex gap-4">
             <div className="relative">
-              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6b7a9a]" />
+              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-[#6b7a9a]" />
               <select
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value as SensorType | 'all')}
-                className="pl-12 pr-8 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
+                className="pl-12 pr-8 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
               >
                 <option value="all">{t('allTypes')}</option>
                 {sensorTypes.map((type) => (
@@ -70,11 +73,11 @@ export function Sensors() {
               </select>
             </div>
             <div className="relative">
-              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6b7a9a]" />
+              <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-[#6b7a9a]" />
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value as SensorStatus | 'all')}
-                className="pl-12 pr-8 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
+                className="pl-12 pr-8 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
               >
                 <option value="all">{t('allStatus')}</option>
                 {sensorStatuses.map((status) => (
@@ -89,14 +92,14 @@ export function Sensors() {
       {loading.sensors ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="bg-[#0f2137] rounded-2xl p-5 border border-white/5 animate-pulse" />
+            <div key={i} className="bg-white dark:bg-[#0f2137] rounded-2xl p-5 border border-gray-200 dark:border-white/5 animate-pulse" />
           ))}
         </div>
       ) : filteredSensors.length === 0 ? (
-        <div className="bg-[#0f2137] rounded-2xl p-12 text-center border border-white/5">
-          <Wifi className="w-12 h-12 text-[#6b7a9a] mx-auto mb-4" />
-          <p className="text-white mb-2">{t('noSensorData')}</p>
-          <p className="text-sm text-[#6b7a9a]">{t('adjustFilter')}</p>
+        <div className="bg-white dark:bg-[#0f2137] rounded-2xl p-12 text-center border border-gray-200 dark:border-white/5">
+          <Wifi className="w-12 h-12 text-gray-500 dark:text-[#6b7a9a] mx-auto mb-4" />
+          <p className="text-gray-900 dark:text-white mb-2">{t('noSensorData')}</p>
+          <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('adjustFilter')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

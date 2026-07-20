@@ -1,5 +1,6 @@
 from enum import Enum
 from datetime import datetime
+from typing import Union, Optional
 from pydantic import BaseModel, Field
 
 
@@ -29,14 +30,32 @@ class SensorData(BaseModel):
     did: str
     name: str
     sensor_type: SensorType
-    value: float | int | None = None
+    product_id: Optional[str] = None
+    value: Union[float, int, None] = None
     unit: str
     status: SensorStatus
-    room_id: str | None = None
-    room_name: str | None = None
-    home_id: str | None = None
-    icon: str | None = None
-    battery: int | None = None
+    room_id: Optional[str] = None
+    room_name: Optional[str] = None
+    home_id: Optional[str] = None
+    icon: Optional[str] = None
+    battery: Optional[int] = None
+    rssi: Optional[int] = None
+    signalLevel: Optional[int] = None
+    contactState: Optional[int] = None
+    tamperState: Optional[int] = None
+    sensorLifeStatus: Optional[int] = None
+    alarmState: Optional[int] = None
+    smokeState: Optional[int] = None
+    gasState: Optional[int] = None
+    waterState: Optional[int] = None
+    motionState: Optional[int] = None
+    switchState: Optional[int] = None
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    co2: Optional[float] = None
+    pm25: Optional[float] = None
+    pm10: Optional[float] = None
+    hcho: Optional[float] = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
@@ -78,6 +97,7 @@ class SensorEventType(str, Enum):
     REMOTE_ALARM = "remote_alarm"
     LOW_BATTERY = "low_battery"
     TAMPER_ALARM = "tamper_alarm"
+    SWITCH_ALARM = "switch_alarm"
 
 
 class SensorEvent(BaseModel):
@@ -86,10 +106,10 @@ class SensorEvent(BaseModel):
     level: SensorEventLevel
     did: str
     device_name: str
-    room_name: str | None = None
-    home_id: str | None = None
-    product_id: str | None = None
-    child_device_id: str | None = None
+    room_name: Optional[str] = None
+    home_id: Optional[str] = None
+    product_id: Optional[str] = None
+    child_device_id: Optional[str] = None
     description: str
     raw_data: dict = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=datetime.now)

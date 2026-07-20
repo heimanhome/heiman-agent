@@ -81,10 +81,60 @@ class SensorDeviceAdapter(BaseDeviceAdapter):
             timestamp=sensor_data.timestamp,
         )
 
-    def update_from_mqtt(self, device_id: str, properties: dict):
+    def update_from_mqtt(self, device_id: str, properties: dict, topic: str = ""):
         try:
+            product_id = ""
+            
+            if topic:
+                topic_parts = topic.strip('/').split('/')
+                if 'child' in topic_parts:
+                    logger.info("[SensorAdapter] Child device topic detected")
+                else:
+                    if len(topic_parts) >= 5:
+                        product_id = topic_parts[4]
+                        logger.info("[SensorAdapter] product_id from topic: %s", product_id)
+            
+            if not product_id or product_id == "heiman":
+                try:
+                    from heiman.database.connector import get_db_connector
+                    from heiman.database.product_repo import ProductRepo
+                    db = get_db_connector()
+                    repo = ProductRepo(db)
+                    with db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "SELECT DISTINCT product_id FROM sensor_logs WHERE did = ? AND product_id IS NOT NULL AND product_id != '' ORDER BY id DESC",
+                            (device_id,)
+                        )
+                        rows = cursor.fetchall()
+                        
+                        fallback_product_id = None
+                        for row in rows:
+                            pid = str(row[0])
+                            logger.info("[SensorAdapter] Checking product_id: %s", pid)
+                            if pid:
+                                if fallback_product_id is None:
+                                    fallback_product_id = pid
+                                product_info = repo.get_product(pid)
+                                logger.info("[SensorAdapter] Product info for %s: %s", pid, product_info)
+                                if product_info:
+                                    classified_name = product_info.get("classified_name", "")
+                                    product_name = product_info.get("name", "")
+                                    logger.info("[SensorAdapter] Classified name: %s, Product name: %s", classified_name, product_name)
+                                    if "网关" not in classified_name and "网关" not in product_name:
+                                        product_id = pid
+                                        logger.info("[SensorAdapter] product_id from database (non-gateway): %s", product_id)
+                                        break
+                        
+                        if not product_id and fallback_product_id:
+                            product_id = fallback_product_id
+                            logger.info("[SensorAdapter] product_id from database (fallback): %s", product_id)
+                except Exception as e:
+                    logger.debug("[SensorAdapter] Failed to get product_id from database: %s", e)
+            
             sensor_data = self._api_client._parse_sensor_data({
                 "deviceId": device_id,
+                "productId": product_id,
                 "properties": properties,
             })
             
@@ -92,12 +142,40 @@ class SensorDeviceAdapter(BaseDeviceAdapter):
                 self._sensor_data_cache[device_id] = sensor_data
                 
                 if device_id not in self._devices:
+                    device_name = sensor_data.name
+                    if not device_name or device_name.strip() == "" or device_name.startswith("Device "):
+                        if product_id:
+                            try:
+                                from heiman.database.connector import get_db_connector
+                                from heiman.database.product_repo import ProductRepo
+                                db = get_db_connector()
+                                repo = ProductRepo(db)
+                                product_info = repo.get_product(product_id)
+                                if product_info:
+                                    device_name = product_info.get("name", f"Device {device_id[:8]}")
+                            except Exception as e:
+                                logger.debug("[SensorAdapter] Failed to get product name: %s", e)
+                        if not device_name or device_name.strip() == "":
+                            device_name = f"Device {device_id[:8]}"
+                    
                     self._devices[device_id] = PerceptionDevice(
                         did=device_id,
-                        name=f"Device {device_id[:8]}",
+                        name=device_name,
                         device_type=sensor_data.sensor_type.value,
                         online=True,
                     )
+                else:
+                    if sensor_data.name and sensor_data.name.strip() != "" and not sensor_data.name.startswith("Device "):
+                        self._devices[device_id].name = sensor_data.name
+                
+                try:
+                    from heiman.dependencies import get_sensor_log_repo
+                    
+                    sensor_log_repo = get_sensor_log_repo()
+                    sensor_log_repo.insert(sensor_data)
+                    logger.info("[Adapter] Sensor data stored to database: %s", device_id)
+                except Exception as db_e:
+                    logger.warning("[Adapter] Failed to store sensor data to database: %s", db_e)
                 
                 logger.info("[Adapter] Updated sensor from MQTT: %s - %s", device_id, sensor_data.sensor_type)
         except Exception as e:

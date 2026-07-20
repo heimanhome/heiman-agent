@@ -146,3 +146,13 @@ class PersonRepo:
             "DELETE FROM person WHERE id = ?", (person_id,)
         )
         return affected > 0
+
+
+_person_repo_instance = None
+
+
+def get_person_repo() -> PersonRepo:
+    global _person_repo_instance
+    if _person_repo_instance is None:
+        _person_repo_instance = PersonRepo()
+    return _person_repo_instance

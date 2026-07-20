@@ -226,8 +226,8 @@ export const sensorApi = {
 };
 
 export const eventApi = {
-  getAll: (params?: { event_type?: string; level?: string; acknowledged?: boolean; home_id?: string }) =>
-    api.get<ApiResponse<SensorEvent[]>>('/events', { params }),
+  getAll: (params?: { event_type?: string; level?: string; acknowledged?: boolean; home_id?: string; page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<SensorEvent>>('/events', { params }),
   getById: (event_id: string) => api.get<ApiResponse<SensorEvent>>(`/events/${event_id}`),
   acknowledge: (event_id: string) => api.post<ApiResponse>(`/events/${event_id}/acknowledge`),
   batchAcknowledge: (event_ids: string[]) => api.post<ApiResponse>('/events/batch/acknowledge', { event_ids }),
@@ -255,7 +255,7 @@ export interface Member {
   id: string;
   name: string;
   role: 'owner' | 'admin' | 'member' | 'device';
-  avatar: string;
+  avatar: string | { url: string };
 }
 
 export const homeApi = {
@@ -278,11 +278,43 @@ export interface LogEntry {
   message: string;
 }
 
+export interface DeviceLogEntry {
+  id: string;
+  did: string;
+  sensor_type: string;
+  value: string | number;
+  unit: string;
+  status: string;
+  room_name: string;
+  home_id: string;
+  timestamp: string;
+  property_name: string;
+  attribute: string;
+  battery?: number;
+  rssi?: number;
+  switch_state?: number;
+  contact_state?: number;
+  motion_state?: number;
+  temperature?: number;
+  humidity?: number;
+}
+
+export interface PaginatedResponse<T> {
+  success: boolean;
+  data: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  message?: string;
+}
+
 export const logApi = {
-  getAll: (params?: { level?: string; action?: string; user?: string; search?: string }) =>
-    api.get<ApiResponse<LogEntry[]>>('/logs', { params }),
+  getAll: (params?: { level?: string; action?: string; user?: string; search?: string; page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<LogEntry>>('/logs', { params }),
   getOperationLogs: (params?: { search?: string }) => api.get<ApiResponse<LogEntry[]>>('/logs/operation', { params }),
   getErrorLogs: (params?: { search?: string }) => api.get<ApiResponse<LogEntry[]>>('/logs/error', { params }),
+  getDeviceLogs: (params?: { did?: string; sensor_type?: string; home_id?: string; after?: string; before?: string; search?: string; page?: number; page_size?: number }) =>
+    api.get<PaginatedResponse<DeviceLogEntry>>('/logs/device', { params }),
   exportLogs: (params?: { level?: string; start_time?: string; end_time?: string }) =>
     api.get<Blob>('/logs/export', { params, responseType: 'blob' }),
 };
@@ -515,9 +547,9 @@ export interface TraceRecord {
   gate_video_pass: number;
   gate_audio_pass: number;
   identity_ms: number;
-  omni_ms: number;
-  omni_call_count: number;
-  omni_error_count: number;
+  heiman_ms: number;
+  heiman_call_count: number;
+  heiman_error_count: number;
 }
 
 export interface TraceDevice {
@@ -537,9 +569,9 @@ export interface TraceDevice {
   gate_audio_pass: number;
   gate_hold_pass: number;
   identity_ms: number;
-  omni_ms: number;
-  omni_call_count: number;
-  omni_error_count: number;
+  heiman_ms: number;
+  heiman_call_count: number;
+  heiman_error_count: number;
 }
 
 export interface AgentRun {
@@ -605,7 +637,7 @@ export interface AdminStatus {
   rule_engine: { total_rules: number; enabled_rules: number };
 }
 
-export interface OmniProfile {
+export interface HeimanProfile {
   label: string;
   model: string;
   base_url: string;
@@ -614,9 +646,9 @@ export interface OmniProfile {
   active?: boolean;
 }
 
-export interface OmniConfig {
-  active: OmniProfile;
-  profiles: OmniProfile[];
+export interface HeimanConfig {
+  active: HeimanProfile;
+  profiles: HeimanProfile[];
 }
 
 export const adminApi = {
@@ -624,21 +656,21 @@ export const adminApi = {
   getDebug: () => api.get<ApiResponse<{ enabled: boolean }>>('/admin/debug'),
   setDebug: (enabled: boolean) => api.post<ApiResponse<{ enabled: boolean }>>('/admin/debug', { enabled }),
   buildLogPack: () => api.post<ApiResponse<{ filename: string; size_mb: number; file_count: number; path: string }>>('/admin/debug/log-pack'),
-  getOmniConfig: () => api.get<ApiResponse<OmniConfig>>('/admin/omni-config'),
-  saveOmniConfig: (data: {
+  getHeimanConfig: () => api.get<ApiResponse<HeimanConfig>>('/admin/heiman-config'),
+  saveHeimanConfig: (data: {
     label: string;
     base_url: string;
     model: string;
     api_key?: string;
     original_label?: string;
     activate?: boolean;
-  }) => api.put<ApiResponse<OmniConfig>>('/admin/omni-config', data),
-  activateOmniConfig: (label: string) => api.post<ApiResponse<OmniConfig>>('/admin/omni-config/activate', { label }),
-  deleteOmniConfig: (label: string) => api.post<ApiResponse<OmniConfig>>('/admin/omni-config/delete', { label }),
-  testOmniConfig: (data?: { model?: string; base_url?: string; api_key?: string; label?: string }) =>
-    api.post<ApiResponse<any>>('/admin/omni-config/test', data || {}),
-  listOmniModels: (data: { base_url: string; api_key?: string; label?: string }) =>
-    api.post<ApiResponse<any>>('/admin/omni-config/models', data),
+  }) => api.put<ApiResponse<HeimanConfig>>('/admin/heiman-config', data),
+  activateHeimanConfig: (label: string) => api.post<ApiResponse<HeimanConfig>>('/admin/heiman-config/activate', { label }),
+  deleteHeimanConfig: (label: string) => api.post<ApiResponse<HeimanConfig>>('/admin/heiman-config/delete', { label }),
+  testHeimanConfig: (data?: { model?: string; base_url?: string; api_key?: string; label?: string }) =>
+    api.post<ApiResponse<any>>('/admin/heiman-config/test', data || {}),
+  listHeimanModels: (data: { base_url: string; api_key?: string; label?: string }) =>
+    api.post<ApiResponse<any>>('/admin/heiman-config/models', data),
 };
 
 export interface MonitorStatus {

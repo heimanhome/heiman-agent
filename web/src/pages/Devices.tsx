@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { 
   Search, RefreshCw, ChevronDown, ChevronRight, 
   Wifi, Zap, MapPin, Battery, BatteryLow, BatteryMedium, BatteryFull,
@@ -20,7 +21,7 @@ interface RoomGroup {
 
 function BatteryIcon({ level, isLow }: { level: number; isLow: boolean }) {
   if (level < 0) return null;
-  const color = isLow || level <= 20 ? 'text-[#ff4757]' : level <= 50 ? 'text-[#ffa502]' : 'text-[#00ff88]';
+  const color = isLow || level <= 20 ? 'text-red-500 dark:text-red-400' : level <= 50 ? 'text-amber-500 dark:text-amber-400' : 'text-green-600 dark:text-green-500';
   const Icon = level <= 20 ? BatteryLow : level <= 50 ? BatteryMedium : BatteryFull;
   return (
     <div className={`flex items-center gap-1 ${color}`}>
@@ -34,23 +35,23 @@ function SignalIcon({ rssi }: { rssi: number }) {
   if (rssi <= -999) return null;
   
   let bars = 0;
-  let color = 'text-[#6b7a9a]';
+  let color = 'text-gray-400';
   
   if (rssi >= -50) {
     bars = 4;
-    color = 'text-[#00ff88]';
+    color = 'text-green-600 dark:text-green-500';
   } else if (rssi >= -65) {
     bars = 3;
-    color = 'text-[#00ff88]';
+    color = 'text-green-600 dark:text-green-500';
   } else if (rssi >= -75) {
     bars = 2;
-    color = 'text-[#ffa502]';
+    color = 'text-amber-500 dark:text-amber-400';
   } else if (rssi >= -85) {
     bars = 1;
-    color = 'text-[#ff4757]';
+    color = 'text-red-500 dark:text-red-400';
   } else {
     bars = 0;
-    color = 'text-[#ff4757]';
+    color = 'text-red-500 dark:text-red-400';
   }
 
   return (
@@ -59,7 +60,7 @@ function SignalIcon({ rssi }: { rssi: number }) {
         <div
           key={i}
           className={`w-1 rounded-sm transition-colors ${
-            i <= bars ? 'bg-current' : 'bg-white/10'
+            i <= bars ? 'bg-current' : 'bg-gray-300/10 dark:bg-gray-700/10'
           }`}
           style={{ height: `${4 + i * 2}px` }}
         />
@@ -83,15 +84,15 @@ function SensorDataItem({ icon: Icon, value, unit, label, color }: {
 
   return (
     <div className="flex items-center gap-2">
-      <Icon className={`w-3 h-3 ${color || 'text-[#6b7a9a]'}`} />
-      <span className={`text-xs font-medium ${color || 'text-white'}`}>
+      <Icon className={`w-3 h-3 ${color || 'text-gray-500 dark:text-[#6b7a9a]'}`} />
+      <span className={`text-xs font-medium ${color || 'text-gray-900 dark:text-white'}`}>
         {displayValue}{unit}
       </span>
     </div>
   );
 }
 
-function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => string }) {
+function DeviceCard({ device, t, onClick }: { device: DeviceData; t: (key: string) => string; onClick?: () => void }) {
   const status = device.status?.toLowerCase() || 'offline';
   const isOffline = status === 'offline';
   const isOnline = !isOffline;
@@ -99,59 +100,61 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
   
   const getStatusInfo = () => {
     if (isOffline) {
-      return { text: t('deviceStatus.offline'), color: 'text-[#6b7a9a]', isAlarm: false };
+      return { text: t('deviceStatus.offline'), color: 'text-gray-500 dark:text-gray-400', isAlarm: false };
     }
     
     if (isLowBattery) {
-      return { text: t('deviceStatus.lowBattery'), color: 'text-[#ff4757]', isAlarm: true };
+      return { text: t('deviceStatus.lowBattery'), color: 'text-red-500 dark:text-red-400', isAlarm: true };
     }
 
     if (device.tamperState !== null && device.tamperState !== undefined) {
         const tamperVal = String(device.tamperState);
-        const text = ((t('deviceStatus.tamper') as unknown) as Record<string, string>)[tamperVal] || t('deviceStatus.tamper.0');
+        const text = t(`deviceStatus.tamper.${tamperVal}`) || t('deviceStatus.tamper.0');
         return { 
           text, 
-          color: device.tamperState === 1 ? 'text-[#ff4757]' : 'text-[#00ff88]',
+          color: device.tamperState === 1 ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.tamperState === 1 
         };
       }
 
       if (device.sensorLifeStatus !== null && device.sensorLifeStatus !== undefined) {
         const lifeVal = String(device.sensorLifeStatus);
-        const text = ((t('deviceStatus.sensorLife') as unknown) as Record<string, string>)[lifeVal] || t('deviceStatus.sensorLife.0');
+        const text = t(`deviceStatus.sensorLife.${lifeVal}`) || t('deviceStatus.sensorLife.0');
         return { 
           text, 
-          color: device.sensorLifeStatus === 1 ? 'text-[#ffa502]' : 'text-[#00ff88]',
+          color: device.sensorLifeStatus === 1 ? 'text-amber-500 dark:text-amber-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.sensorLifeStatus === 1 
         };
       }
 
       if (device.smokeState !== null && device.smokeState !== undefined) {
         const smokeVal = String(device.smokeState);
-        const text = ((t('deviceStatus.smoke') as unknown) as Record<string, string>)[smokeVal] || t('deviceStatus.smoke.0');
+        const text = t(`deviceStatus.smoke.${smokeVal}`) || t('deviceStatus.smoke.0');
         return { 
           text, 
-          color: device.smokeState > 0 ? 'text-[#ff4757]' : 'text-[#00ff88]',
+          color: device.smokeState > 0 ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.smokeState > 0 
         };
       }
 
       if (device.gasState !== null && device.gasState !== undefined) {
         const gasVal = String(device.gasState);
-        const text = ((t('deviceStatus.gas') as unknown) as Record<string, string>)[gasVal] || t('deviceStatus.gas.0');
+        const type = device.type?.toLowerCase() || '';
+        const statusKey = type.includes('co') ? 'co' : 'gas';
+        const text = t(`deviceStatus.${statusKey}.${gasVal}`) || t(`deviceStatus.${statusKey}.0`);
         return { 
           text, 
-          color: device.gasState > 0 ? 'text-[#ff4757]' : 'text-[#00ff88]',
+          color: device.gasState > 0 ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.gasState > 0 
         };
       }
 
       if (device.waterState !== null && device.waterState !== undefined) {
         const waterVal = String(device.waterState);
-        const text = ((t('deviceStatus.water') as unknown) as Record<string, string>)[waterVal] || t('deviceStatus.water.0');
+        const text = t(`deviceStatus.water.${waterVal}`) || t('deviceStatus.water.0');
         return { 
           text, 
-          color: device.waterState === 1 ? 'text-[#00d4ff]' : 'text-[#00ff88]',
+          color: device.waterState === 1 ? 'text-blue-500 dark:text-blue-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.waterState === 1 
         };
       }
@@ -161,10 +164,10 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
         
         if (type.includes('motion') || type.includes('pir')) {
           const motionVal = String(device.switchState);
-          const text = ((t('deviceStatus.motion') as unknown) as Record<string, string>)[motionVal] || t('deviceStatus.motion.0');
+          const text = t(`deviceStatus.motion.${motionVal}`) || t('deviceStatus.motion.0');
           return { 
             text, 
-            color: device.switchState === 1 ? 'text-[#00d4ff]' : 'text-[#00ff88]',
+            color: device.switchState === 1 ? 'text-blue-500 dark:text-blue-400' : 'text-green-600 dark:text-green-500',
             isAlarm: device.switchState === 1 
           };
         }
@@ -172,45 +175,45 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
         if (type.includes('door') || type.includes('contact') || type.includes('window')) {
           return { 
             text: device.switchState === 1 ? t('deviceStatus.open') : t('deviceStatus.closed'), 
-            color: device.switchState === 1 ? 'text-[#00d4ff]' : 'text-[#00ff88]',
+            color: device.switchState === 1 ? 'text-blue-500 dark:text-blue-400' : 'text-green-600 dark:text-green-500',
             isAlarm: false 
           };
         }
 
         return { 
           text: device.switchState === 1 ? t('deviceStatus.open') : t('deviceStatus.closed'), 
-          color: device.switchState === 1 ? 'text-[#00d4ff]' : 'text-[#00ff88]',
+          color: device.switchState === 1 ? 'text-blue-500 dark:text-blue-400' : 'text-green-600 dark:text-green-500',
           isAlarm: false 
         };
       }
 
       if (device.motionState !== null && device.motionState !== undefined) {
         const motionVal = String(device.motionState);
-        const text = ((t('deviceStatus.motion') as unknown) as Record<string, string>)[motionVal] || t('deviceStatus.motion.0');
+        const text = t(`deviceStatus.motion.${motionVal}`) || t('deviceStatus.motion.0');
         return { 
           text, 
-          color: device.motionState === 1 ? 'text-[#00d4ff]' : 'text-[#00ff88]',
+          color: device.motionState === 1 ? 'text-blue-500 dark:text-blue-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.motionState === 1 
         };
       }
 
       if (device.alarmState !== null && device.alarmState !== undefined) {
         const sosVal = String(device.alarmState);
-        const text = ((t('deviceStatus.sos') as unknown) as Record<string, string>)[sosVal] || t('deviceStatus.sos.0');
+        const text = t(`deviceStatus.sos.${sosVal}`) || t('deviceStatus.sos.0');
         return { 
           text, 
-          color: device.alarmState === 1 ? 'text-[#ff4757]' : 'text-[#00ff88]',
+          color: device.alarmState === 1 ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-500',
           isAlarm: device.alarmState === 1 
         };
       }
 
     if (status === 'alarm') {
-      return { text: t('deviceStatus.alarm'), color: 'text-[#ff4757]', isAlarm: true };
+      return { text: t('deviceStatus.alarm'), color: 'text-red-500 dark:text-red-400', isAlarm: true };
     }
     if (status === 'warning') {
-      return { text: t('deviceStatus.warning'), color: 'text-[#ffa502]', isAlarm: true };
+      return { text: t('deviceStatus.warning'), color: 'text-amber-500 dark:text-amber-400', isAlarm: true };
     }
-    return { text: t('deviceStatus.normal'), color: 'text-[#00ff88]', isAlarm: false };
+    return { text: t('deviceStatus.normal'), color: 'text-green-600 dark:text-green-500', isAlarm: false };
   };
 
   const statusInfo = getStatusInfo();
@@ -218,12 +221,13 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
 
   return (
     <div
-      className={`relative bg-[#0f2137] rounded-2xl p-4 border border-white/5 transition-all hover:border-[#00d4ff]/30 hover:shadow-lg hover:shadow-[#00d4ff]/5 ${
+      className={`relative bg-white dark:bg-[#0f2137] rounded-2xl p-4 border border-gray-200 dark:border-white/5 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md ${
         !isOnline ? 'opacity-60' : ''
-      } ${statusInfo.isAlarm ? 'border-[#ff4757]/30' : ''}`}
+      } ${statusInfo.isAlarm ? 'border-red-200 dark:border-red-500/30' : ''} ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
     >
       <div className="flex items-start gap-3 mb-3">
-        <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-[#0a1628] flex-shrink-0 border border-white/5">
+        <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 flex-shrink-0 border border-gray-200 dark:border-white/5">
           <img
             src={photoUrl}
             alt={device.name}
@@ -233,17 +237,17 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
             }}
           />
           {!isOnline && (
-            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-              <Wifi className="w-5 h-5 text-white/60" />
+            <div className="absolute inset-0 bg-gray-200/40 dark:bg-gray-900/40 flex items-center justify-center">
+              <Wifi className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </div>
           )}
           {statusInfo.isAlarm && isOnline && (
-            <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-[#ff4757] animate-pulse" />
+            <div className="absolute top-1 right-1 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
           )}
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className="font-medium text-white text-sm truncate mb-0.5">{device.name}</h3>
+          <h3 className="font-medium text-gray-900 dark:text-white text-sm truncate mb-0.5">{device.name}</h3>
           <div className={`text-xs font-medium ${statusInfo.color} flex items-center gap-1`}>
             {(isLowBattery || statusInfo.isAlarm) && <AlertTriangle className="w-3 h-3" />}
             <span>{statusInfo.text}</span>
@@ -301,7 +305,7 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
             <SignalIcon rssi={device.rssi} />
           )}
         </div>
-        <div className="flex items-center gap-1 text-xs text-[#6b7a9a]">
+        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-[#6b7a9a]">
           <MapPin className="w-3 h-3" />
           <span className="truncate max-w-[100px]">
             {device.room || t('noRoom')}
@@ -315,6 +319,7 @@ function DeviceCard({ device, t }: { device: DeviceData; t: (key: string) => str
 export function Devices() {
   const { t } = useTranslation('app');
   const { currentHomeId } = useAppStore();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [devices, setDevices] = useState<DeviceData[]>([]);
   const [rooms, setRooms] = useState<RoomData[]>([]);
@@ -423,8 +428,8 @@ export function Devices() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">{t('deviceManagement')}</h1>
-          <p className="text-sm text-[#6b7a9a]">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('deviceManagement')}</h1>
+          <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">
             {t('manageSensors')} · {totalDevices} {t('devices')}
           </p>
         </div>
@@ -432,7 +437,7 @@ export function Devices() {
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span>{t('refresh')}</span>
@@ -441,39 +446,39 @@ export function Devices() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-[#0f2137] rounded-2xl p-5 border border-white/5">
+        <div className="bg-white dark:bg-[#0f2137] rounded-2xl p-5 border border-gray-200 dark:border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#00d4ff] to-[#00ff88] flex items-center justify-center">
-              <Wifi className="w-6 h-6 text-[#0a1628]" />
+            <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+              <Wifi className="w-6 h-6 text-gray-600 dark:text-gray-400" />
             </div>
             <div>
-              <p className="text-3xl font-bold text-white">{totalDevices}</p>
-              <p className="text-sm text-[#6b7a9a]">{t('allDevices')}</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalDevices}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t('allDevices')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-[#0f2137] rounded-2xl p-5 border border-white/5">
+        <div className="bg-white dark:bg-[#0f2137] rounded-2xl p-5 border border-gray-200 dark:border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#00ff88]/10 flex items-center justify-center">
-              <Wifi className="w-6 h-6 text-[#00ff88]" />
+            <div className="w-12 h-12 rounded-xl bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
+              <Wifi className="w-6 h-6 text-green-600 dark:text-green-500" />
             </div>
             <div>
-              <p className="text-3xl font-bold text-white">{onlineCount}</p>
-              <p className="text-sm text-[#6b7a9a]">{t('onlineDevices')}</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">{onlineCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t('onlineDevices')}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-[#0f2137] rounded-2xl p-4 border border-white/5">
+      <div className="bg-white dark:bg-[#0f2137] rounded-2xl p-4 border border-gray-200 dark:border-white/5">
         <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6b7a9a]" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={t('searchPlaceholder')}
-            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50"
+            className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600"
           />
         </div>
       </div>
@@ -481,23 +486,23 @@ export function Devices() {
       <div className="space-y-4">
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="bg-[#0f2137] rounded-2xl p-4 border border-white/5 animate-pulse h-32" />
+            <div key={i} className="bg-white dark:bg-[#0f2137] rounded-2xl p-4 border border-gray-200 dark:border-white/5 animate-pulse h-32" />
           ))
         ) : roomGroups.length > 0 ? (
           roomGroups.map((group) => (
-            <div key={group.roomId} className="bg-[#0f2137] rounded-2xl border border-white/5 overflow-hidden">
+            <div key={group.roomId} className="bg-white dark:bg-[#0f2137] rounded-2xl border border-gray-200 dark:border-white/5 overflow-hidden">
               <button
                 onClick={() => toggleRoom(group.roomId)}
                 className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   {group.expanded ? (
-                    <ChevronDown className="w-5 h-5 text-[#6b7a9a]" />
+                    <ChevronDown className="w-5 h-5 text-gray-500 dark:text-[#6b7a9a]" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-[#6b7a9a]" />
+                    <ChevronRight className="w-5 h-5 text-gray-500 dark:text-[#6b7a9a]" />
                   )}
-                  <span className="font-semibold text-white">{group.roomName}</span>
-                  <span className="text-sm text-[#6b7a9a]">
+                  <span className="font-semibold text-gray-900 dark:text-white">{group.roomName}</span>
+                  <span className="text-sm text-gray-500 dark:text-[#6b7a9a]">
                     ({group.onlineCount}/{group.devices.length})
                   </span>
                 </div>
@@ -506,17 +511,17 @@ export function Devices() {
               {group.expanded && (
                 <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {group.devices.map((device) => (
-                    <DeviceCard key={device.id} device={device} t={t} />
+                    <DeviceCard key={device.id} device={device} t={t} onClick={() => navigate(`/sensors/${device.id}`)} />
                   ))}
                 </div>
               )}
             </div>
           ))
         ) : (
-          <div className="bg-[#0f2137] rounded-2xl p-12 text-center border border-white/5">
-            <Zap className="w-16 h-16 text-[#6b7a9a] mx-auto mb-4" />
-            <p className="text-white text-lg mb-2">{t('noData')}</p>
-            <p className="text-sm text-[#6b7a9a]">{t('adjustFilter')}</p>
+          <div className="bg-white dark:bg-[#0f2137] rounded-2xl p-12 text-center border border-gray-200 dark:border-white/5">
+            <Zap className="w-16 h-16 text-gray-500 dark:text-[#6b7a9a] mx-auto mb-4" />
+            <p className="text-gray-900 dark:text-white text-lg mb-2">{t('noData')}</p>
+            <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('adjustFilter')}</p>
           </div>
         )}
       </div>

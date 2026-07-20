@@ -71,14 +71,15 @@ async def get_sensor(
         from heiman.manager import get_manager
         mgr = get_manager()
 
-        device_data = collector.collect(did, drain=False)
-        if device_data and device_data.sensor_data:
-            return {"success": True, "data": device_data.sensor_data}
-
         sensors = await mgr.api_client.get_sensor_data(home_id)
         sensor = next((s for s in sensors if s.did == did), None)
         if sensor:
+            mgr.sensor_log_repo.insert(sensor)
             return {"success": True, "data": sensor}
+
+        device_data = collector.collect(did, drain=False)
+        if device_data and device_data.sensor_data:
+            return {"success": True, "data": device_data.sensor_data}
 
         return {"success": False, "message": "Sensor not found"}
     except Exception as e:

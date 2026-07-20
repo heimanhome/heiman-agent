@@ -2,6 +2,7 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -43,13 +44,23 @@ class BehaviorLearningEngine:
         self._user_profiles: Dict[str, UserProfile] = {}
         self._event_history: List[Dict] = []
         self._model_path = None
+        self._initialized = False
 
-    async def initialize(self, model_path: Optional[str] = None):
-        self._model_path = model_path
-        if model_path and model_path.exists():
-            await self._load_model(model_path)
+    async def initialize(self, config: Optional[Dict[str, Any]] = None):
+        config = config or {}
+        model_path = config.get("model_path")
+
+        if model_path:
+            self._model_path = model_path
+            path_obj = Path(model_path)
+            if path_obj.exists():
+                await self._load_model(path_obj)
+            else:
+                logger.info("No existing model found at %s, starting fresh", model_path)
         else:
-            logger.info("No existing model found, starting fresh")
+            logger.info("No model path configured, starting fresh")
+
+        self._initialized = True
 
     async def _load_model(self, path):
         try:
@@ -184,7 +195,7 @@ class BehaviorLearningEngine:
 
         profile = self._user_profiles[user_id]
         current_time = datetime.now()
-        current_minutes = current_time.hour * 60 + current_minutes
+        current_minutes = current_time.hour * 60 + current_time.minute
         current_weekday = current_time.weekday()
 
         best_match = None

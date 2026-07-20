@@ -107,7 +107,7 @@ def post_log_pack(current_user: str = Depends(verify_token)):
     return {"success": True, "data": result}
 
 
-class OmniConfigBody(BaseModel):
+class HeimanConfigBody(BaseModel):
     label: str
     base_url: str
     model: str
@@ -116,18 +116,18 @@ class OmniConfigBody(BaseModel):
     activate: bool = True
 
 
-class OmniSelectBody(BaseModel):
+class HeimanSelectBody(BaseModel):
     label: str
 
 
-class OmniTestBody(BaseModel):
+class HeimanTestBody(BaseModel):
     model: str | None = None
     base_url: str | None = None
     api_key: str | None = None
     label: str | None = None
 
 
-class OmniModelsBody(BaseModel):
+class HeimanModelsBody(BaseModel):
     base_url: str
     api_key: str | None = None
     label: str | None = None
@@ -141,6 +141,12 @@ def _mask_api_key(key: str) -> str:
     return f"{key[:3]}…{key[-4:]}"
 
 
+def _get_profile_attr(p, attr: str, default=""):
+    if isinstance(p, dict):
+        return p.get(attr, default)
+    return getattr(p, attr, default)
+
+
 def _key_by_label(label: str, provided: str | None) -> str:
     if provided and provided.strip():
         return provided.strip()
@@ -148,19 +154,21 @@ def _key_by_label(label: str, provided: str | None) -> str:
         return ""
     settings = get_settings()
     m = getattr(settings, "model", None)
-    if m and hasattr(m, "omni") and m.omni.label == label and m.omni.api_key:
-        return m.omni.api_key
-    if m and hasattr(m, "omni_profiles"):
-        for p in m.omni_profiles:
-            if p.label == label and p.api_key:
-                return p.api_key
+    if m and hasattr(m, "heiman"):
+        heiman_obj = m.heiman
+        if _get_profile_attr(heiman_obj, "label") == label and _get_profile_attr(heiman_obj, "api_key"):
+            return _get_profile_attr(heiman_obj, "api_key")
+    if m and hasattr(m, "heiman_profiles"):
+        for p in m.heiman_profiles:
+            if _get_profile_attr(p, "label") == label and _get_profile_attr(p, "api_key"):
+                return _get_profile_attr(p, "api_key")
     return ""
 
 
-def _full_omni_payload() -> dict:
+def _full_heiman_payload() -> dict:
     settings = get_settings()
     m = getattr(settings, "model", None)
-    if not m or not hasattr(m, "omni"):
+    if not m or not hasattr(m, "heiman"):
         return {
             "active": {
                 "label": "",
@@ -171,37 +179,38 @@ def _full_omni_payload() -> dict:
             },
             "profiles": [],
         }
-    active = m.omni
-    profiles = getattr(m, "omni_profiles", [])
+    active = m.heiman
+    profiles = getattr(m, "heiman_profiles", [])
+    active_label = _get_profile_attr(active, "label")
     return {
         "active": {
-            "label": active.label,
-            "model": active.model,
-            "base_url": active.base_url,
-            "api_key_masked": _mask_api_key(active.api_key),
-            "has_key": bool(active.api_key),
+            "label": active_label,
+            "model": _get_profile_attr(active, "model"),
+            "base_url": _get_profile_attr(active, "base_url"),
+            "api_key_masked": _mask_api_key(_get_profile_attr(active, "api_key")),
+            "has_key": bool(_get_profile_attr(active, "api_key")),
         },
         "profiles": [
             {
-                "label": p.label,
-                "model": p.model,
-                "base_url": p.base_url,
-                "api_key_masked": _mask_api_key(p.api_key),
-                "has_key": bool(p.api_key),
-                "active": p.label == active.label,
+                "label": _get_profile_attr(p, "label"),
+                "model": _get_profile_attr(p, "model"),
+                "base_url": _get_profile_attr(p, "base_url"),
+                "api_key_masked": _mask_api_key(_get_profile_attr(p, "api_key")),
+                "has_key": bool(_get_profile_attr(p, "api_key")),
+                "active": _get_profile_attr(p, "label") == active_label,
             }
             for p in profiles
         ],
     }
 
 
-@router.get("/omni-config", summary="Read omni config")
-def get_omni_config(current_user: str = Depends(verify_token)):
-    return {"success": True, "data": _full_omni_payload()}
+@router.get("/heiman-config", summary="Read heiman config")
+def get_heiman_config(current_user: str = Depends(verify_token)):
+    return {"success": True, "data": _full_heiman_payload()}
 
 
-@router.put("/omni-config", summary="Save omni config")
-def put_omni_config(body: OmniConfigBody, current_user: str = Depends(verify_token)):
+@router.put("/heiman-config", summary="Save heiman config")
+def put_heiman_config(body: HeimanConfigBody, current_user: str = Depends(verify_token)):
     from heiman.config.settings import update_shared_config
 
     label = body.label.strip()
@@ -214,11 +223,23 @@ def put_omni_config(body: OmniConfigBody, current_user: str = Depends(verify_tok
     settings = get_settings()
     m = getattr(settings, "model", None)
     profiles = []
-    if m and hasattr(m, "omni_profiles"):
-        profiles = [
-            {"label": p.label, "model": p.model, "base_url": p.base_url, "api_key": p.api_key}
-            for p in m.omni_profiles
-        ]
+    if m and hasattr(m, "heiman_profiles"):
+        profiles = []
+        for p in m.heiman_profiles:
+            if isinstance(p, dict):
+                profiles.append({
+                    "label": p.get("label", ""),
+                    "model": p.get("model", ""),
+                    "base_url": p.get("base_url", ""),
+                    "api_key": p.get("api_key", ""),
+                })
+            else:
+                profiles.append({
+                    "label": p.label,
+                    "model": p.model,
+                    "base_url": p.base_url,
+                    "api_key": p.api_key,
+                })
 
     target = next((p for p in profiles if p["label"] == orig), None) if orig else None
     clash = next((p for p in profiles if p["label"] == label and p is not target), None)
@@ -233,59 +254,65 @@ def put_omni_config(body: OmniConfigBody, current_user: str = Depends(verify_tok
     else:
         profiles.append(entry)
 
-    update_dict = {"omni_profiles": profiles}
-    active_label = m.omni.label if m and hasattr(m, "omni") else ""
+    update_dict = {"heiman_profiles": profiles}
+    active_label = ""
+    if m and hasattr(m, "heiman"):
+        heiman_obj = m.heiman
+        if isinstance(heiman_obj, dict):
+            active_label = heiman_obj.get("label", "")
+        else:
+            active_label = heiman_obj.label
 
     if body.activate or active_label == (orig or label):
-        update_dict["omni"] = entry
+        update_dict["heiman"] = entry
 
     update_shared_config(model=update_dict)
-    return {"success": True, "data": _full_omni_payload()}
+    return {"success": True, "data": _full_heiman_payload()}
 
 
-@router.post("/omni-config/activate", summary="Activate omni config")
-def activate_omni_config(body: OmniSelectBody, current_user: str = Depends(verify_token)):
+@router.post("/heiman-config/activate", summary="Activate heiman config")
+def activate_heiman_config(body: HeimanSelectBody, current_user: str = Depends(verify_token)):
     from heiman.config.settings import update_shared_config
 
     label = body.label.strip()
     settings = get_settings()
     m = getattr(settings, "model", None)
-    if m and hasattr(m, "omni_profiles"):
-        for p in m.omni_profiles:
-            if p.label == label:
+    if m and hasattr(m, "heiman_profiles"):
+        for p in m.heiman_profiles:
+            if _get_profile_attr(p, "label") == label:
                 update_shared_config(
                     model={
-                        "omni": {
-                            "label": p.label,
-                            "model": p.model,
-                            "base_url": p.base_url,
-                            "api_key": p.api_key,
+                        "heiman": {
+                            "label": _get_profile_attr(p, "label"),
+                            "model": _get_profile_attr(p, "model"),
+                            "base_url": _get_profile_attr(p, "base_url"),
+                            "api_key": _get_profile_attr(p, "api_key"),
                         }
                     }
                 )
-                return {"success": True, "data": _full_omni_payload()}
+                return {"success": True, "data": _full_heiman_payload()}
     raise HTTPException(status_code=404, detail="档案不存在")
 
 
-@router.post("/omni-config/delete", summary="Delete omni config")
-def delete_omni_config(body: OmniSelectBody, current_user: str = Depends(verify_token)):
+@router.post("/heiman-config/delete", summary="Delete heiman config")
+def delete_heiman_config(body: HeimanSelectBody, current_user: str = Depends(verify_token)):
     from heiman.config.settings import update_shared_config
 
     label = body.label.strip()
     settings = get_settings()
     m = getattr(settings, "model", None)
     profiles = []
-    if m and hasattr(m, "omni_profiles"):
+    if m and hasattr(m, "heiman_profiles"):
         profiles = [
-            {"label": p.label, "model": p.model, "base_url": p.base_url, "api_key": p.api_key}
-            for p in m.omni_profiles
-            if p.label != label
+            {"label": _get_profile_attr(p, "label"), "model": _get_profile_attr(p, "model"), "base_url": _get_profile_attr(p, "base_url"), "api_key": _get_profile_attr(p, "api_key")}
+            for p in m.heiman_profiles
+            if _get_profile_attr(p, "label") != label
         ]
-    update_shared_config(model={"omni_profiles": profiles})
-    return {"success": True, "data": _full_omni_payload()}
+    update_shared_config(model={"heiman_profiles": profiles})
+    return {"success": True, "data": _full_heiman_payload()}
 
 
-async def _probe_omni(model: str, base_url: str, api_key: str) -> dict:
+async def _probe_heiman(model: str, base_url: str, api_key: str) -> dict:
     base_url = base_url.rstrip("/")
     t0 = time.monotonic()
     try:
@@ -316,24 +343,24 @@ async def _probe_omni(model: str, base_url: str, api_key: str) -> dict:
     return {"ok": False, "code": "http_error", "status": r.status_code, "message": f"HTTP {r.status_code}"}
 
 
-@router.post("/omni-config/test", summary="Test omni config connectivity")
-async def test_omni_config(
-    body: OmniTestBody, current_user: str = Depends(verify_token)
+@router.post("/heiman-config/test", summary="Test heiman config connectivity")
+async def test_heiman_config(
+    body: HeimanTestBody, current_user: str = Depends(verify_token)
 ):
     settings = get_settings()
     m = getattr(settings, "model", None)
-    omni = m.omni if m and hasattr(m, "omni") else None
+    heiman = m.heiman if m and hasattr(m, "heiman") else None
 
-    model = (body.model or (omni.model if omni else "")).strip()
-    base_url = (body.base_url or (omni.base_url if omni else "")).strip()
-    api_key = _key_by_label((body.label or (omni.label if omni else "")).strip(), body.api_key)
+    model = (body.model or (heiman.model if heiman else "")).strip()
+    base_url = (body.base_url or (heiman.base_url if heiman else "")).strip()
+    api_key = _key_by_label((body.label or (heiman.label if heiman else "")).strip(), body.api_key)
 
     if not api_key:
         return {
             "success": True,
             "data": {"ok": False, "code": "no_key", "message": "未配置 API Key"},
         }
-    result = await _probe_omni(model, base_url, api_key)
+    result = await _probe_heiman(model, base_url, api_key)
     return {"success": True, "data": result}
 
 
@@ -362,9 +389,9 @@ async def _fetch_models(base_url: str, api_key: str) -> dict:
     }
 
 
-@router.post("/omni-config/models", summary="List available models")
-async def list_omni_models(
-    body: OmniModelsBody, current_user: str = Depends(verify_token)
+@router.post("/heiman-config/models", summary="List available models")
+async def list_heiman_models(
+    body: HeimanModelsBody, current_user: str = Depends(verify_token)
 ):
     base_url = body.base_url.strip()
     api_key = _key_by_label((body.label or "").strip(), body.api_key)

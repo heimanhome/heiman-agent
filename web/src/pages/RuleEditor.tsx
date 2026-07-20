@@ -130,37 +130,37 @@ export function RuleEditor() {
         </button>
       </div>
 
-      <h1 className="text-2xl font-bold text-white">
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
         {isEdit ? t('editRule') : t('createRule')}
       </h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
-          <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5">
-            <h2 className="text-lg font-semibold text-white mb-4">{t('basicInfo')}</h2>
+          <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t('basicInfo')}</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-[#6b7a9a] mb-2">{t('ruleName')}</label>
+                <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-2">{t('ruleName')}</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={t('enterRuleName')}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-sm text-[#6b7a9a] mb-2">{t('description')}</label>
+                <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-2">{t('description')}</label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('enterRuleDescription')}
                   rows={3}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors resize-none"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors resize-none"
                 />
               </div>
               <div className="flex items-center justify-between">
-                <label className="text-sm text-[#6b7a9a]">{t('ruleEnabled')}</label>
+                <label className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('ruleEnabled')}</label>
                 <button
                   onClick={() => setEnabled(!enabled)}
                   className={`w-12 h-6 rounded-full transition-colors ${
@@ -175,21 +175,21 @@ export function RuleEditor() {
                 </button>
               </div>
               <div>
-                <label className="block text-sm text-[#6b7a9a] mb-2">{t('cooldownMinutes')}</label>
+                <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-2">{t('cooldownMinutes')}</label>
                 <input
                   type="number"
                   value={cooldownMinutes}
                   onChange={(e) => setCooldownMinutes(parseInt(e.target.value) || 0)}
                   min={0}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
                 />
               </div>
             </div>
           </div>
 
-          <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5">
+          <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">{t('ruleConditions')}</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('ruleConditions')}</h2>
               <button
                 onClick={handleAddCondition}
                 className="flex items-center gap-1 text-sm text-[#00d4ff] hover:underline"
@@ -202,7 +202,7 @@ export function RuleEditor() {
               {conditions.map((condition, index) => (
                 <div key={index} className="bg-white/5 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-[#6b7a9a]">{t('condition')} {index + 1}</span>
+                    <span className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('condition')} {index + 1}</span>
                     {conditions.length > 1 && (
                       <button
                         onClick={() => handleRemoveCondition(index)}
@@ -214,11 +214,11 @@ export function RuleEditor() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-xs text-[#6b7a9a] mb-1">{t('sensorType')}</label>
+                      <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('sensorType')}</label>
                       <select
                         value={condition.sensor_type || ''}
                         onChange={(e) => handleUpdateCondition(index, { sensor_type: e.target.value as SensorType | undefined })}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
                       >
                         <option value="">{t('allTypes')}</option>
                         {sensorTypes.map((type) => (
@@ -227,11 +227,11 @@ export function RuleEditor() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-[#6b7a9a] mb-1">{t('operator')}</label>
+                      <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('operator')}</label>
                       <select
                         value={condition.operator}
                         onChange={(e) => handleUpdateCondition(index, { operator: e.target.value as Operator })}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
                       >
                         {operators.map((op) => (
                           <option key={op} value={op}>{operatorLabels[op]}</option>
@@ -239,23 +239,23 @@ export function RuleEditor() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-[#6b7a9a] mb-1">{t('threshold')}</label>
+                      <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('threshold')}</label>
                       <input
                         type="number"
                         value={condition.threshold}
                         onChange={(e) => handleUpdateCondition(index, { threshold: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
                       />
                     </div>
                   </div>
                   <div className="mt-3">
-                    <label className="block text-xs text-[#6b7a9a] mb-1">{t('duration')} ({t('seconds')}, {t('optional')})</label>
+                    <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('duration')} ({t('seconds')}, {t('optional')})</label>
                     <input
                       type="number"
                       value={condition.window_seconds || ''}
                       onChange={(e) => handleUpdateCondition(index, { window_seconds: e.target.value ? parseInt(e.target.value) : undefined })}
                       placeholder={t('durationPlaceholder')}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
                     />
                   </div>
                 </div>
@@ -264,9 +264,9 @@ export function RuleEditor() {
           </div>
         </div>
 
-        <div className="bg-[#0f2137] rounded-xl p-6 border border-white/5">
+        <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">{t('ruleActions')}</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('ruleActions')}</h2>
             <button
               onClick={handleAddAction}
               className="flex items-center gap-1 text-sm text-[#00d4ff] hover:underline"
@@ -279,7 +279,7 @@ export function RuleEditor() {
             {actions.map((action, index) => (
               <div key={index} className="bg-white/5 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm text-[#6b7a9a]">{t('action')} {index + 1}</span>
+                  <span className="text-sm text-gray-500 dark:text-[#6b7a9a]">{t('action')} {index + 1}</span>
                   {actions.length > 1 && (
                     <button
                       onClick={() => handleRemoveAction(index)}
@@ -291,11 +291,11 @@ export function RuleEditor() {
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs text-[#6b7a9a] mb-1">{t('actionType')}</label>
+                    <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('actionType')}</label>
                     <select
                       value={action.action_type}
                       onChange={(e) => handleUpdateAction(index, { action_type: e.target.value as ActionType })}
-                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]/50 transition-colors appearance-none cursor-pointer"
                     >
                       {actionTypes.map((type) => (
                         <option key={type} value={type}>{actionLabels[type]}</option>
@@ -304,25 +304,25 @@ export function RuleEditor() {
                   </div>
                   {action.action_type === 'webhook' && (
                     <div>
-                      <label className="block text-xs text-[#6b7a9a] mb-1">{t('webhookUrl')}</label>
+                      <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('webhookUrl')}</label>
                       <input
                         type="text"
                         value={action.payload?.title || ''}
                         onChange={(e) => handleUpdateAction(index, { payload: { ...action.payload, title: e.target.value } })}
                         placeholder={t('enterWebhookUrl')}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
                       />
                     </div>
                   )}
                   {action.action_type !== 'log' && (
                     <div>
-                      <label className="block text-xs text-[#6b7a9a] mb-1">{t('messageContent')}</label>
+                      <label className="block text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">{t('messageContent')}</label>
                       <input
                         type="text"
                         value={action.payload?.message || ''}
                         onChange={(e) => handleUpdateAction(index, { payload: { ...action.payload, message: e.target.value } })}
                         placeholder={t('enterMessageContent')}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-900 dark:text-white placeholder-[#6b7a9a] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
                       />
                     </div>
                   )}
@@ -333,7 +333,7 @@ export function RuleEditor() {
 
           <div className="mt-8 p-4 bg-[#00d4ff]/10 rounded-xl">
             <h3 className="text-sm font-medium text-[#00d4ff] mb-2">{t('rulePreview')}</h3>
-            <p className="text-sm text-white">
+            <p className="text-sm text-gray-900 dark:text-white">
               {t('when')} {conditions.map((c) => `${c.sensor_type ? t(`sensorLabels.${c.sensor_type}`) : t('allSensors')}${t('value')} ${operatorLabels[c.operator]} ${c.threshold}`).join(' ' + t('and') + ' ')}
               {cooldownMinutes > 0 && `，${t('cooldown')} ${cooldownMinutes} ${t('minutes')}`}
               {t('then')}：{actions.map((a) => actionLabels[a.action_type]).join('、')}

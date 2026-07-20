@@ -36,15 +36,17 @@ async def get_events(
     acknowledged: Annotated[bool | None, Query()] = None,
     after: Annotated[str | None, Query()] = None,
     before: Annotated[str | None, Query()] = None,
-    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     home_id: Annotated[str | None, Query()] = None,
     event_repo: EventRepo = Depends(get_event_repo),
 ):
     try:
         mgr = get_manager()
+        offset = (page - 1) * page_size
         
         if mgr.api_client.is_authenticated:
-            api_events = await mgr.api_client.get_alarm_logs(home_id, limit)
+            api_events = await mgr.api_client.get_alarm_logs(home_id, page_size + offset)
             db_events = event_repo.query(
                 event_type=event_type.value if event_type else None,
                 level=level.value if level else None,
@@ -52,7 +54,8 @@ async def get_events(
                 acknowledged=acknowledged,
                 after=after,
                 before=before,
-                limit=limit,
+                limit=page_size + offset,
+                offset=0,
             )
             
             all_events = api_events + db_events
@@ -71,8 +74,19 @@ async def get_events(
             
             all_events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
             
-            return {"success": True, "data": all_events[:limit]}
+            total = len(all_events)
+            paginated_events = all_events[offset:offset + page_size]
+            
+            return {"success": True, "data": paginated_events, "total": total, "page": page, "page_size": page_size}
         else:
+            total = event_repo.count(
+                event_type=event_type.value if event_type else None,
+                level=level.value if level else None,
+                did=did,
+                acknowledged=acknowledged,
+                after=after,
+                before=before,
+            )
             db_events = event_repo.query(
                 event_type=event_type.value if event_type else None,
                 level=level.value if level else None,
@@ -80,9 +94,10 @@ async def get_events(
                 acknowledged=acknowledged,
                 after=after,
                 before=before,
-                limit=limit,
+                limit=page_size,
+                offset=offset,
             )
-            return {"success": True, "data": db_events}
+            return {"success": True, "data": db_events, "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         logger.error("Failed to get events: %s", e)
         return {"success": False, "data": [], "message": str(e)}
@@ -104,34 +119,6 @@ async def batch_acknowledge_events(
         return {"success": False, "message": str(e)}
 
 
-@router.get("/{event_id}", response_model=dict)
-async def get_event(
-    event_id: str,
-    event_repo: EventRepo = Depends(get_event_repo),
-):
-    try:
-        event = event_repo.get_by_id(event_id)
-        if event:
-            return {"success": True, "data": event}
-        return {"success": False, "message": "Event not found"}
-    except Exception as e:
-        logger.error("Failed to get event %s: %s", event_id, e)
-        return {"success": False, "message": str(e)}
-
-
-@router.post("/{event_id}/acknowledge", response_model=dict)
-async def acknowledge_event(
-    event_id: str,
-    event_repo: EventRepo = Depends(get_event_repo),
-):
-    try:
-        success = event_repo.acknowledge(event_id)
-        return {"success": success, "event_id": event_id}
-    except Exception as e:
-        logger.error("Failed to acknowledge event %s: %s", event_id, e)
-        return {"success": False, "message": str(e)}
-
-
 @router.get("/stream")
 async def events_stream(request: Request, token: str = Query("")):
     """SSE real-time event stream.
@@ -141,13 +128,16 @@ async def events_stream(request: Request, token: str = Query("")):
     """
     from heiman.config import get_settings
     from heiman.service.event_bus import get_event_bus
+    from heiman.shared_state import get_current_token
 
     settings = get_settings()
-    expected_token = settings.server.token
+    service_token = settings.server.token
 
-    if expected_token and token != expected_token:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    if service_token and token != service_token:
+        current_token = get_current_token()
+        if not (current_token and token == current_token.get("access_token")):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     bus = get_event_bus()
     queue = await bus.subscribe()
@@ -189,3 +179,31 @@ async def stream_status(current_user: str = Depends(lambda: "admin")):
             "history_size": len(bus.get_history()),
         },
     }
+
+
+@router.get("/{event_id}", response_model=dict)
+async def get_event(
+    event_id: str,
+    event_repo: EventRepo = Depends(get_event_repo),
+):
+    try:
+        event = event_repo.get_by_id(event_id)
+        if event:
+            return {"success": True, "data": event}
+        return {"success": False, "message": "Event not found"}
+    except Exception as e:
+        logger.error("Failed to get event %s: %s", event_id, e)
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/{event_id}/acknowledge", response_model=dict)
+async def acknowledge_event(
+    event_id: str,
+    event_repo: EventRepo = Depends(get_event_repo),
+):
+    try:
+        success = event_repo.acknowledge(event_id)
+        return {"success": success, "event_id": event_id}
+    except Exception as e:
+        logger.error("Failed to acknowledge event %s: %s", event_id, e)
+        return {"success": False, "message": str(e)}

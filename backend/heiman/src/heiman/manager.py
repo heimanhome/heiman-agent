@@ -55,6 +55,7 @@ class Manager:
             return
 
         logger.info("Manager initialization started")
+        self._event_loop = asyncio.get_running_loop()
         settings = get_settings()
 
         self._api_client = await self._initialize_api_client()
@@ -108,39 +109,104 @@ class Manager:
 
         self._register_mqtt_callbacks()
 
+        if not self._offline_mode:
+            self._try_connect_mqtt()
+
         self._initialized = True
         logger.info("Manager initialization completed (offline_mode=%s)", self._offline_mode)
+
+    def _try_connect_mqtt(self):
+        try:
+            from heiman.mqtt_service import get_mqtt_service
+            from heiman.shared_state import get_current_token
+
+            mqtt_service = get_mqtt_service()
+            if not mqtt_service.is_connected:
+                token_info = get_current_token()
+                if token_info:
+                    access_token = token_info.get("access_token")
+                    user_id = token_info.get("user_id")
+                    if access_token and user_id:
+                        import asyncio
+                        asyncio.create_task(mqtt_service.connect(access_token, user_id))
+                        logger.info("[Manager] MQTT connection initiated with restored token")
+                    else:
+                        logger.warning("[Manager] Cannot connect MQTT: missing access_token or user_id")
+                else:
+                    logger.warning("[Manager] Cannot connect MQTT: no token available")
+            else:
+                logger.info("[Manager] MQTT already connected")
+        except Exception as e:
+            logger.error("[Manager] Failed to initiate MQTT connection: %s", e)
 
     def _register_mqtt_callbacks(self):
         try:
             from heiman.mqtt_service import get_mqtt_service
-            from heiman.service.event_processor import get_event_processor
 
             mqtt_service = get_mqtt_service()
             mqtt_service.register_device_callback(self._on_mqtt_device_update)
             mqtt_service.register_event_callback(self._on_mqtt_event)
-
-            event_processor = get_event_processor()
-            mqtt_service.register_raw_message_callback(event_processor.process_event)
-            logger.info("[Manager] Registered MQTT callbacks including EventProcessor")
+            logger.info("[Manager] Registered MQTT callbacks")
         except Exception as e:
             logger.warning("[Manager] Failed to register MQTT callbacks: %s", e)
 
-    def _on_mqtt_device_update(self, device_id: str, data: dict):
+    def _on_mqtt_device_update(self, device_id: str, data: dict, topic: str = ""):
         try:
             logger.info("[Manager] MQTT device update: %s", device_id)
             properties = data.get("properties", data)
             if not properties:
                 return
 
-            self._adapter.update_from_mqtt(device_id, properties)
+            self._adapter.update_from_mqtt(device_id, properties, topic)
             logger.debug("[Manager] Updated sensor data for %s", device_id)
+
+            try:
+                from heiman.service.event_bus import get_event_bus
+
+                bus = get_event_bus()
+                async def publish_update():
+                    await bus.publish({
+                        "event": "device_update",
+                        "id": str(uuid4()),
+                        "data": {
+                            "device_id": device_id,
+                            "properties": properties,
+                            "timestamp": datetime.now().isoformat(),
+                        },
+                    })
+                    logger.debug("[Manager] Device update published to event bus: %s", device_id)
+
+                if hasattr(self, "_event_loop"):
+                    self._event_loop.call_soon_threadsafe(
+                        asyncio.create_task, publish_update()
+                    )
+                else:
+                    logger.warning("[Manager] Event loop not available for device update")
+            except Exception as e:
+                logger.warning("[Manager] Failed to publish device update to event bus: %s", e)
         except Exception as e:
             logger.error("[Manager] Error handling MQTT device update: %s", e)
 
-    def _on_mqtt_event(self, device_id: str, event_type: str, payload: dict):
+    def _on_mqtt_event(self, device_id: str, event_type: str, payload: dict, topic: str = ""):
         try:
             logger.info("[Manager] MQTT event: %s - %s", device_id, event_type)
+
+            try:
+                from heiman.service.event_processor import get_event_processor
+                event_processor = get_event_processor()
+
+                async def process_mqtt_event():
+                    if topic:
+                        await event_processor.process_event(topic, payload)
+
+                if hasattr(self, "_event_loop"):
+                    self._event_loop.call_soon_threadsafe(
+                        asyncio.create_task, process_mqtt_event()
+                    )
+                else:
+                    logger.warning("[Manager] Event loop not available for MQTT event")
+            except Exception as e:
+                logger.warning("[Manager] Failed to process MQTT event: %s", e)
         except Exception as e:
             logger.error("[Manager] Error handling MQTT event: %s", e)
 
@@ -224,7 +290,9 @@ class Manager:
         # 优先尝试使用保存的 OAuth token 恢复会话
         try:
             from heiman.shared_state import load_token_from_db
+            logger.info("[Manager] Attempting to load OAuth token from database...")
             token = load_token_from_db()
+            logger.info("[Manager] Load token result: %s", "NOT None" if token else "None")
             if token:
                 user_id = token.get("user_id", "")
                 access_token = token.get("access_token", "")
@@ -249,7 +317,7 @@ class Manager:
                         from datetime import datetime
 
                         settings = get_settings()
-                        oauth_client = HeimanClient(base_url=settings.heiman.api_url, token=None, verify_ssl=False)
+                        oauth_client = HeimanClient(base_url=settings.heiman.api_url, token=None)
                         token_data = await oauth_client.refresh_access_token(
                             refresh_token=refresh_token,
                             client_id=settings.heiman.client_id,

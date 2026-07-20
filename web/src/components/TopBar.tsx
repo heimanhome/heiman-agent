@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, User } from 'lucide-react';
+import { Sun, Moon, User, Globe } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { HomeSwitcher } from './HomeSwitcher';
@@ -7,7 +7,7 @@ import { useAppStore } from '../store';
 import { useEffect } from 'react';
 
 export function TopBar() {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const { effective, toggle } = useTheme();
   const { profile, fetchProfile } = useAppStore();
   const username = profile?.nickName || profile?.username || '';
@@ -16,17 +16,23 @@ export function TopBar() {
     fetchProfile();
   }, [fetchProfile]);
 
+  const isDarkMode = effective === 'dark';
+
   return (
     <header
-      className="flex items-center justify-between gap-4 px-5 md:px-8 border-b border-[#1e3a5f] bg-[#0a1628]"
-      style={{ minHeight: 64 }}
+      className={`flex items-center justify-between gap-4 px-5 md:px-8 border-b bg-opacity-95 backdrop-blur-sm`}
+      style={{ 
+        minHeight: 64,
+        backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+        borderColor: isDarkMode ? '#1e293b' : '#e2e8f0'
+      }}
     >
       <div className="flex items-center gap-3 min-w-0">
         <HomeSwitcher />
       </div>
       <div className="flex items-center gap-3 shrink-0">
         {username && (
-          <div className="flex items-center gap-2 text-sm text-[#6b7a9a]">
+          <div className={`flex items-center gap-2 text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
             <User className="w-4 h-4" />
             <span className="hidden md:inline">{username}</span>
           </div>
@@ -35,7 +41,11 @@ export function TopBar() {
         <button
           type="button"
           onClick={toggle}
-          className="inline-flex items-center justify-center rounded-md text-[#6b7a9a] hover:bg-white/10 hover:text-white transition-colors"
+          className={`inline-flex items-center justify-center rounded-md transition-colors ${
+            isDarkMode 
+              ? 'text-slate-300 hover:bg-white/10 hover:text-white' 
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
           style={{ width: 32, height: 32 }}
           aria-label={effective === 'dark' ? t('theme.toLight') : t('theme.toDark')}
           title={effective === 'dark' ? t('theme.toLight') : t('theme.toDark')}

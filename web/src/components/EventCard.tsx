@@ -55,7 +55,7 @@ export function EventCard({ event, onAcknowledge }: EventCardProps) {
 
   return (
     <div
-      className={`bg-[#0f2137] rounded-xl p-4 border border-white/5 transition-all duration-300 ${
+      className={`bg-white dark:bg-[#0f2137] rounded-xl p-4 border border-gray-200 dark:border-white/5 transition-all duration-300 ${
         event.acknowledged
           ? 'opacity-60'
           : 'hover:border-[#00d4ff]/30 hover:shadow-lg hover:shadow-[#00d4ff]/10'
@@ -71,7 +71,7 @@ export function EventCard({ event, onAcknowledge }: EventCardProps) {
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${level.bg} ${level.text}`}>
                 {t(`eventLevelLabels.${event.level}`)}
               </span>
-              <span className="text-xs text-[#6b7a9a]">{t(`sensorLabels.${event.sensor_type}`) || event.sensor_type}</span>
+              <span className="text-xs text-gray-500 dark:text-[#6b7a9a]">{t(`sensorLabels.${event.sensor_type}`) || event.sensor_type}</span>
               {event.acknowledged && (
                 <span className="text-xs text-[#00ff88] flex items-center gap-1">
                   <CheckCircle className="w-3 h-3" />
@@ -79,12 +79,12 @@ export function EventCard({ event, onAcknowledge }: EventCardProps) {
                 </span>
               )}
             </div>
-            <p className="text-sm text-white font-medium">{event.message}</p>
+            <p className="text-sm text-gray-900 dark:text-white font-medium">{event.message}</p>
             <p className="text-xs text-[#4a5568] mt-1">{t('device')}: {event.device_name || event.did}</p>
           </div>
         </div>
         <div className="text-right flex-shrink-0">
-          <p className="text-xs text-[#6b7a9a]">
+          <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">
             {new Date(event.timestamp).toLocaleString(i18n.language)}
           </p>
           {!event.acknowledged && onAcknowledge && (

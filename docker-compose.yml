@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  heiman-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: heiman-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      - heiman-data:/app/data
+      - ./backend/heiman/.env:/app/.env
+    environment:
+      - HEIMAN_API_URL=https://spapi.heiman.cn
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+    networks:
+      - heiman-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  heiman-agent-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: heiman-agent-dev
+    ports:
+      - "8000:8000"
+      - "5173:5173"
+    volumes:
+      - ./backend/heiman/src:/app/src
+      - ./backend/heiman/.env:/app/.env
+      - ./web:/app/web
+    environment:
+      - HEIMAN_API_URL=https://spapi.heiman.cn
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+      - SERVER_RELOAD=true
+    networks:
+      - heiman-network
+    restart: unless-stopped
+
+volumes:
+  heiman-data:
+    driver: local
+
+networks:
+  heiman-network:
+    driver: bridge

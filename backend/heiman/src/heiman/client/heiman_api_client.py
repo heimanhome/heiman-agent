@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import time
+import json
 from datetime import datetime
 from typing import Optional, List, Dict
 
@@ -22,13 +23,12 @@ PROPERTY_MAP = {
     "GasSensorState": SensorType.CO,
     "WaterSensorState": SensorType.WATER,
     "ContactState": SensorType.CONTACT,
-    "SwitchState": SensorType.CONTACT,
+    "SwitchState": SensorType.PLUG,
     "OF": SensorType.MOTION,
     "DetectState": SensorType.MOTION,
     "MotionState": SensorType.MOTION,
     "Status": SensorType.PLUG,
     "OnOff": SensorType.PLUG,
-    "LightSwitch": SensorType.PLUG,
     "AlarmState": SensorType.SIREN,
     "SirenState": SensorType.SIREN,
     "ButtonState": SensorType.BUTTON,
@@ -40,7 +40,7 @@ PROPERTY_MAP = {
     "gas": SensorType.CO,
     "water": SensorType.WATER,
     "contact": SensorType.CONTACT,
-    "switch": SensorType.CONTACT,
+    "switch": SensorType.PLUG,
     "motion": SensorType.MOTION,
     "pir": SensorType.MOTION,
     "plug": SensorType.PLUG,
@@ -108,6 +108,8 @@ DEVICE_TYPE_MAP = {
     "window": SensorType.CONTACT,
     "contact": SensorType.CONTACT,
     "开关": SensorType.CONTACT,
+    "门磁": SensorType.CONTACT,
+    "窗磁": SensorType.CONTACT,
     "motion": SensorType.MOTION,
     "pir": SensorType.MOTION,
     "plug": SensorType.PLUG,
@@ -150,16 +152,11 @@ class HeimanApiClient:
             self._api_url,
             len(access_token) if access_token else 0,
         )
-        settings = get_settings()
-        # 注意：海曼 API 使用自签名证书，需要禁用 SSL 验证
         return HeimanClient(
             base_url=self._api_url,
             token=access_token,
             timeout=DEFAULT_TIMEOUT,
             retries=DEFAULT_RETRIES,
-            verify_ssl=False,
-            tenant_id=settings.heiman.tenant_id,
-            accept_language=settings.heiman.language,
         )
 
     async def login_with_oauth_token(self, access_token: str, user_id: str) -> bool:
@@ -297,12 +294,20 @@ class HeimanApiClient:
 
             refresh_token = token_info["refresh_token"]
             user_id = token_info.get("user_id", "")
+            expires_at = token_info.get("expires_at", 0)
+            
+            now = time.time()
+            logger.info(
+                "[HEIMAN API] Refreshing access_token via refresh_token - "
+                "user_id=%s, token_expired=%s, expires_at=%s",
+                user_id,
+                now > expires_at,
+                datetime.fromtimestamp(expires_at).isoformat() if expires_at else "never",
+            )
+
             settings = get_settings()
-
-            logger.info("[HEIMAN API] Refreshing access_token via refresh_token")
-
             oauth_client = HeimanClient(
-                base_url=settings.heiman.api_url, token=None, verify_ssl=False
+                base_url=settings.heiman.api_url, token=None
             )
             try:
                 token_data = await oauth_client.refresh_access_token(
@@ -313,18 +318,37 @@ class HeimanApiClient:
             finally:
                 await oauth_client.close()
 
-            new_access_token = token_data.get("access_token")
-            if not new_access_token:
-                logger.warning(
-                    "[HEIMAN API] Token refresh failed: no access_token in response: %s",
-                    str(token_data)[:500],
-                )
+            logger.info("[HEIMAN API] Refresh token response type: %s, full response: %s", 
+                        type(token_data).__name__, str(token_data)[:800])
+
+            if isinstance(token_data, dict):
+                status = token_data.get("status")
+                result = token_data.get("result")
+                message = token_data.get("message", "")
+                
+                if status == 200 and not result and not message:
+                    logger.error("[HEIMAN API] Token refresh returned empty result - refresh_token may be expired or invalid")
+                    set_current_token(None)
+                    return False
+                
+                new_access_token = token_data.get("access_token")
+                if not new_access_token:
+                    logger.warning(
+                        "[HEIMAN API] Token refresh failed: no access_token in response. "
+                        "status=%s, message=%s, result=%s",
+                        status, message, str(result)[:200] if result else None,
+                    )
+                    set_current_token(None)
+                    return False
+            else:
+                logger.error("[HEIMAN API] Token refresh returned unexpected response type: %s", type(token_data).__name__)
+                set_current_token(None)
                 return False
 
+            new_access_token = token_data.get("access_token")
             new_refresh_token = token_data.get("refresh_token") or refresh_token
             new_expires_at = time.time() + (token_data.get("expires_in", 3600))
 
-            # 更新存储(内存 + DB)
             set_current_token({
                 "access_token": new_access_token,
                 "refresh_token": new_refresh_token,
@@ -332,7 +356,6 @@ class HeimanApiClient:
                 "user_id": user_id,
             })
 
-            # 更新当前 client 的 token
             self._access_token = new_access_token
             self._heiman_client = self._create_client(new_access_token)
 
@@ -340,7 +363,9 @@ class HeimanApiClient:
             return True
 
         except Exception as e:
-            logger.error("[HEIMAN API] Token refresh failed: %s", e)
+            logger.error("[HEIMAN API] Token refresh failed: %s", e, exc_info=True)
+            from heiman.shared_state import set_current_token
+            set_current_token(None)
             return False
 
     async def _ensure_valid_token(self) -> bool:
@@ -454,6 +479,39 @@ class HeimanApiClient:
             return []
 
         try:
+            result = await self._heiman_client.get_home_detail(home_id=home_id)
+
+            logger.info(
+                "[HEIMAN API] get_home_detail for home %s: status=%s, result=%s",
+                home_id,
+                result.get("status"),
+                str(result)[:1000],
+            )
+
+            if result.get("status") == 200:
+                result_data = result.get("result", {})
+                if isinstance(result_data, dict):
+                    devices = result_data.get("deviceList", result_data.get("devices", []))
+                    logger.info("[HEIMAN API] Found devices from home_detail: %d", len(devices))
+                    if devices:
+                        return devices
+            
+            logger.info("[HEIMAN API] Falling back to get_home_detail_post")
+            try:
+                result_post = await self._heiman_client.get_home_detail_post(home_id=home_id)
+                logger.info("[HEIMAN API] get_home_detail_post for home %s: status=%s, result=%s", home_id, result_post.get("status"), str(result_post)[:1000])
+                if result_post.get("status") == 200:
+                    result_data = result_post.get("result", {})
+                    if isinstance(result_data, dict):
+                        devices = result_data.get("deviceList", result_data.get("devices", result_data.get("devList", [])))
+                        if devices and isinstance(devices, list):
+                            logger.info("[HEIMAN API] Found devices from home_detail_post: %d", len(devices))
+                            if devices:
+                                return devices
+            except Exception as e:
+                logger.warning("[HEIMAN API] get_home_detail_post failed: %s", e)
+            
+            logger.info("[HEIMAN API] Falling back to get_device_list")
             property_identifiers = [
                 "ArmModeControl", "GatewayHandleStatus", "GasSensorState", "Alarm",
                 "RingSwitch", "LockState", "AlarmSwitch", "LightSwitch", "BWY", "SWY",
@@ -497,10 +555,141 @@ class HeimanApiClient:
                 if not isinstance(devices, list):
                     devices = []
                 logger.info("[HEIMAN API] Parsed devices count: %d", len(devices))
-                return devices
-            return []
+                if devices:
+                    return devices
+            
+            logger.info("[HEIMAN API] All API methods returned empty device list, trying database fallback")
+            return await self._get_devices_from_db(home_id)
         except Exception as e:
             logger.error("[HEIMAN API] Get devices failed for home %s: %s", home_id, e)
+            return await self._get_devices_from_db(home_id)
+    
+    async def _get_devices_from_db(self, home_id: str) -> list[dict]:
+        try:
+            from heiman.database.connector import get_db_connector
+            
+            db = get_db_connector()
+            sql = """
+                SELECT DISTINCT did, sensor_type, room_name, product_id 
+                FROM sensor_logs 
+                WHERE did IS NOT NULL AND did != '' 
+                ORDER BY id DESC 
+                LIMIT 50
+            """
+            results = db.execute_query(sql)
+            
+            devices = []
+            seen_dids = set()
+            for row in results:
+                did = str(row.get("did", ""))
+                if did and did not in seen_dids:
+                    seen_dids.add(did)
+                    device_info = {
+                        "id": did,
+                        "deviceId": did,
+                        "name": did,
+                        "deviceName": did,
+                        "deviceType": {"value": "sensor"},
+                        "roomId": "",
+                        "roomName": row.get("room_name", ""),
+                        "state": {"value": "online"},
+                        "homeId": home_id,
+                        "productId": row.get("product_id", ""),
+                        "sensorType": row.get("sensor_type", ""),
+                        "properties": {},
+                        "deriveMetadata": [],
+                    }
+                    
+                    props_sql = """
+                        SELECT p.log_id, p.property_id, p.property_name, p.value, p.value_type, p.unit, s.timestamp
+                        FROM sensor_log_properties p
+                        JOIN sensor_logs s ON p.log_id = s.id
+                        WHERE s.did = ?
+                        ORDER BY s.timestamp DESC, p.property_id
+                        LIMIT 20
+                    """
+                    props = db.execute_query(props_sql, (did,))
+                    if props:
+                        properties_dict = {}
+                        derive_metadata = []
+                        seen_props = set()
+                        for prop in props:
+                            prop_id = prop.get("property_id", "")
+                            if prop_id in seen_props:
+                                continue
+                            seen_props.add(prop_id)
+                            prop_value = prop.get("value", "")
+                            try:
+                                if prop_value.isdigit():
+                                    properties_dict[prop_id] = int(prop_value)
+                                elif '.' in prop_value:
+                                    try:
+                                        properties_dict[prop_id] = float(prop_value)
+                                    except ValueError:
+                                        properties_dict[prop_id] = prop_value
+                                else:
+                                    properties_dict[prop_id] = prop_value
+                            except ValueError:
+                                properties_dict[prop_id] = prop_value
+                            
+                            derive_metadata.append({
+                                "property": prop_id,
+                                "propertyName": prop.get("property_name", ""),
+                                "value": prop_value,
+                                "numberValue": int(prop_value) if prop_value.isdigit() else None,
+                                "unit": prop.get("unit", ""),
+                            })
+                        device_info["properties"] = properties_dict
+                        device_info["deriveMetadata"] = derive_metadata
+                    
+                    latest_log_sql = """
+                        SELECT * FROM sensor_logs 
+                        WHERE did = ? 
+                        ORDER BY timestamp DESC 
+                        LIMIT 1
+                    """
+                    latest_log = db.execute_query(latest_log_sql, (did,))
+                    if latest_log:
+                        log = latest_log[0]
+                        for attr in ["battery", "rssi", "signal_level", "switch_state", "contact_state",
+                                     "motion_state", "gas_state", "smoke_state", "water_state", 
+                                     "alarm_state", "tamper_state", "temperature", "humidity"]:
+                            val = log.get(attr)
+                            if val is not None:
+                                device_info[attr] = val
+                    
+                    if self._heiman_client:
+                        try:
+                            detail = await self._heiman_client.get_device_info(device_id=did)
+                            if detail and detail.get("status") == 200:
+                                result = detail.get("result", {})
+                                if isinstance(result, dict):
+                                    device_info.update({
+                                        "name": result.get("name", did),
+                                        "deviceName": result.get("deviceName", did),
+                                        "productName": result.get("productName", ""),
+                                        "photoUrl": result.get("photoUrl", ""),
+                                        "parentId": result.get("parentId", ""),
+                                        "deviceType": result.get("deviceType", {"value": "sensor"}),
+                                        "state": result.get("state", {"value": "online"}),
+                                        "roomId": result.get("roomId", ""),
+                                        "roomName": result.get("roomName", row.get("room_name", "")),
+                                    })
+                                    api_derive_metadata = result.get("deriveMetadata")
+                                    if api_derive_metadata and isinstance(api_derive_metadata, list) and len(api_derive_metadata) > 0:
+                                        device_info["deriveMetadata"] = api_derive_metadata
+                                    api_properties = result.get("properties")
+                                    if api_properties and isinstance(api_properties, dict) and len(api_properties) > 0:
+                                        device_info["properties"] = api_properties
+                        except Exception as e:
+                            logger.debug("[HEIMAN API] Failed to get device info for %s: %s", did, e)
+                    
+                    devices.append(device_info)
+            
+            logger.info("[HEIMAN API] Found %d devices from sensor_logs", len(devices))
+            return devices
+        except Exception as e:
+            logger.warning("[HEIMAN API] Failed to get devices from database: %s", e)
             return []
 
     async def get_devices(self, home_id: str | None = None) -> dict[str, dict]:
@@ -615,7 +804,8 @@ class HeimanApiClient:
             )
 
             if result.get("status") == 200:
-                logs = result.get("result", {}).get("list", [])
+                result_data = result.get("result", {})
+                logs = result_data.get("data", result_data.get("list", []))
                 if not isinstance(logs, list):
                     logs = []
                 
@@ -634,24 +824,119 @@ class HeimanApiClient:
 
     def _adapt_event_data(self, log: dict, devices: dict[str, dict], home_id: str | None = None) -> dict | None:
         try:
-            device_id = str(log.get("deviceId", log.get("did", log.get("id", ""))))
+            alarm_info = log.get("alarmInfo", "")
+            alarm_info_data = {}
+            if alarm_info:
+                try:
+                    alarm_info_data = json.loads(alarm_info) if isinstance(alarm_info, str) else alarm_info
+                except (json.JSONDecodeError, TypeError):
+                    alarm_info_data = {}
+            
+            device_id = str(log.get("deviceId", log.get("sourceId", log.get("did", log.get("id", "")))))
             device = devices.get(device_id, {})
-            device_name = log.get("deviceName", log.get("name", device.get("deviceName", device.get("name", ""))))
+            device_name = log.get("deviceName", log.get("sourceName", log.get("name", alarm_info_data.get("deviceName", device.get("deviceName", device.get("name", ""))))))
+            
+            data_props = alarm_info_data.get("data", {})
+            alarm_type_str = str(log.get("alarmType", log.get("type", ""))).lower()
             
             message = log.get("message", log.get("content", log.get("description", log.get("pushContent", ""))))
             if not message:
-                alarm_type = log.get("alarmType", log.get("type", ""))
-                alarm_name = log.get("alarmName", log.get("name", ""))
-                message = alarm_name or alarm_type or "事件"
+                alarm_name = log.get("alarmName", "")
+                if alarm_name:
+                    message = alarm_name
+                elif data_props:
+                    prop_messages = []
+                    device_name_lower = str(device_name).lower() if device_name else ""
+                    for prop_key, prop_val in data_props.items():
+                        if prop_key == "SwitchState":
+                            if "门磁" in device_name or "门窗" in device_name or "contact" in device_name_lower:
+                                if prop_val == 0:
+                                    prop_messages.append("门窗关闭")
+                                elif prop_val == 1:
+                                    prop_messages.append("门窗打开")
+                                elif prop_val == 2:
+                                    prop_messages.append("门窗关闭")
+                                elif prop_val == 3:
+                                    prop_messages.append("门窗打开")
+                                else:
+                                    prop_messages.append(f"门窗状态: {prop_val}")
+                            elif "插座" in device_name or "plug" in device_name_lower:
+                                if prop_val == 0:
+                                    prop_messages.append("插座关闭")
+                                elif prop_val == 1:
+                                    prop_messages.append("插座开启")
+                                elif prop_val == 2:
+                                    prop_messages.append("插座关闭")
+                                elif prop_val == 3:
+                                    prop_messages.append("插座开启")
+                                else:
+                                    prop_messages.append(f"插座状态: {prop_val}")
+                            else:
+                                if prop_val == 0:
+                                    prop_messages.append("设备关闭")
+                                elif prop_val == 1:
+                                    prop_messages.append("设备开启")
+                                elif prop_val == 2:
+                                    prop_messages.append("设备关闭")
+                                elif prop_val == 3:
+                                    prop_messages.append("设备开启")
+                                else:
+                                    prop_messages.append(f"开关状态: {prop_val}")
+                        elif prop_key == "ContactState":
+                            if prop_val == 0:
+                                prop_messages.append("门窗关闭")
+                            elif prop_val == 1:
+                                prop_messages.append("门窗打开")
+                            else:
+                                prop_messages.append(f"门窗状态: {prop_val}")
+                        elif prop_key == "MotionState":
+                            if prop_val == 0:
+                                prop_messages.append("无人移动")
+                            elif prop_val == 1:
+                                prop_messages.append("检测到移动")
+                            else:
+                                prop_messages.append(f"移动状态: {prop_val}")
+                        elif prop_key == "SmokeSensorState":
+                            if prop_val == 0:
+                                prop_messages.append("烟雾正常")
+                            elif prop_val == 1:
+                                prop_messages.append("烟雾报警")
+                            else:
+                                prop_messages.append(f"烟雾状态: {prop_val}")
+                        elif prop_key == "WaterSensorState":
+                            if prop_val == 0:
+                                prop_messages.append("水浸正常")
+                            elif prop_val == 1:
+                                prop_messages.append("水浸报警")
+                            else:
+                                prop_messages.append(f"水浸状态: {prop_val}")
+                        elif prop_key == "GasSensorState":
+                            if prop_val == 0:
+                                prop_messages.append("燃气正常")
+                            elif prop_val == 1:
+                                prop_messages.append("燃气报警")
+                            else:
+                                prop_messages.append(f"燃气状态: {prop_val}")
+                        else:
+                            prop_messages.append(f"{prop_key}: {prop_val}")
+                    message = "，".join(prop_messages) if prop_messages else "事件"
+                else:
+                    message = alarm_type_str or "事件"
             
             level = log.get("level", log.get("alarmLevel", ""))
-            if not level or level not in ["critical", "high", "medium", "low", "warning", "info"]:
-                alarm_type = str(log.get("alarmType", log.get("type", ""))).lower()
-                if "alarm" in alarm_type or "报警" in str(message):
+            if isinstance(level, int):
+                if level <= 2:
                     level = "high"
-                elif "warning" in alarm_type or "警告" in str(message):
+                elif level <= 4:
                     level = "warning"
-                elif "info" in alarm_type or "信息" in str(message) or "在线" in str(message) or "离线" in str(message):
+                else:
+                    level = "info"
+            elif not level or level not in ["critical", "high", "medium", "low", "warning", "info"]:
+                if "alarm" in alarm_type_str or "报警" in str(message):
+                    level = "high"
+                elif "warning" in alarm_type_str or "警告" in str(message):
+                    level = "warning"
+                elif "info" in alarm_type_str or "信息" in str(message) or "在线" in str(message) or "离线" in str(message):
                     level = "info"
                 else:
                     level = "info"
@@ -668,10 +953,55 @@ class HeimanApiClient:
             sensor_type = None
             device_type = str(log.get("deviceType", device.get("deviceType", ""))).lower()
             product_name = str(log.get("productName", device.get("productName", ""))).lower()
-            alarm_type_str = str(log.get("alarmType", log.get("type", ""))).lower()
+            device_name_lower = str(device_name).lower()
+            
+            product_id = str(log.get("productId", device.get("productId", "")))
+            
+            if product_id == "heiman":
+                try:
+                    from heiman.database.connector import get_db_connector
+                    db = get_db_connector()
+                    with db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "SELECT product_id FROM sensor_logs WHERE did = ? ORDER BY id DESC LIMIT 1",
+                            (device_id,)
+                        )
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            product_id = str(row[0])
+                            logger.debug("[HEIMAN API] Resolved product_id from sensor_logs: %s -> %s", device_id, product_id)
+                except Exception as e:
+                    logger.debug("[HEIMAN API] Failed to resolve product_id from sensor_logs: %s", e)
             
             if "sensor_type" in log:
                 sensor_type = str(log.get("sensor_type", "")).lower()
+            
+            if sensor_type is None or sensor_type == "":
+                if product_id:
+                    product_info = self._get_product_info(product_id)
+                    if product_info:
+                        db_product_name = product_info.get("name", "")
+                        db_classified_name = product_info.get("classified_name", "")
+                        if "门磁" in db_product_name or "门窗" in db_product_name:
+                            sensor_type = SensorType.CONTACT.value
+                        elif "插座" in db_product_name:
+                            sensor_type = SensorType.PLUG.value
+                        elif "contact" in db_product_name.lower():
+                            sensor_type = SensorType.CONTACT.value
+                        elif "plug" in db_product_name.lower():
+                            sensor_type = SensorType.PLUG.value
+                        else:
+                            for keyword, st in PRODUCT_NAME_MAP:
+                                if keyword.lower() in db_classified_name.lower() or keyword.lower() in db_product_name.lower():
+                                    sensor_type = st.value
+                                    break
+            
+            if sensor_type is None or sensor_type == "":
+                for type_name, st in DEVICE_TYPE_MAP.items():
+                    if type_name in device_name_lower:
+                        sensor_type = st.value
+                        break
             
             if sensor_type is None or sensor_type == "":
                 for keyword, st in PRODUCT_NAME_MAP:
@@ -686,18 +1016,36 @@ class HeimanApiClient:
                         break
             
             if sensor_type is None or sensor_type == "":
-                device_name_lower = str(device_name).lower()
-                for type_name, st in DEVICE_TYPE_MAP.items():
-                    if type_name in device_name_lower:
-                        sensor_type = st.value
-                        break
+                has_contact = "ContactState" in data_props
+                has_switch = "SwitchState" in data_props
+                if has_contact and has_switch:
+                    if "门磁" in device_name or "门窗" in device_name:
+                        sensor_type = SensorType.CONTACT.value
+                    elif "插座" in device_name:
+                        sensor_type = SensorType.PLUG.value
+                    else:
+                        sensor_type = SensorType.CONTACT.value
+                elif has_contact:
+                    sensor_type = SensorType.CONTACT.value
+                elif has_switch:
+                    sensor_type = SensorType.PLUG.value
+                else:
+                    for prop_key in data_props.keys():
+                        if prop_key in PROPERTY_MAP:
+                            sensor_type = PROPERTY_MAP[prop_key].value
+                            break
             
             if sensor_type is None or sensor_type == "":
                 sensor_type = "undefined"
             
-            timestamp = log.get("timestamp", log.get("time", log.get("createTime", log.get("updatedTime", ""))))
+            timestamp = log.get("timestamp", log.get("time", log.get("notifyTime", log.get("createTime", log.get("updatedTime", "")))))
             if not timestamp:
                 timestamp = datetime.now().isoformat()
+            elif isinstance(timestamp, (int, float)):
+                if timestamp > 1e12:
+                    timestamp = datetime.fromtimestamp(timestamp / 1000).isoformat()
+                else:
+                    timestamp = datetime.fromtimestamp(timestamp).isoformat()
             
             event_id = str(log.get("id", log.get("eventId", log.get("pushId", log.get("recordId", "")))))
             if not event_id:
@@ -755,26 +1103,131 @@ class HeimanApiClient:
         home_id = str(device.get("homeId", ""))
         room_name = device.get("roomName", "")
         product_id = str(device.get("productId", ""))
+        derive_metadata: list = []
+        
+        battery_value = None
+        rssi_value = None
+        signal_level = None
+        contact_state = None
+        tamper_state = None
+        sensor_life_status = None
+        alarm_state = None
+        smoke_state = None
+        gas_state = None
+        water_state = None
+        motion_state = None
+        switch_state = None
+        temp_value = None
+        humidity_value = None
+        co2_value = None
+        pm25_value = None
+        pm10_value = None
+        hcho_value = None
 
         if product_id:
             product_info = self._get_product_info(product_id)
             if product_info:
                 classified_name = product_info.get("classified_name", "")
                 product_name = product_info.get("name", "")
-                for keyword, sensor_type_enum in PRODUCT_NAME_MAP:
-                    if keyword.lower() in classified_name.lower() or keyword.lower() in product_name.lower():
-                        sensor_type = sensor_type_enum
-                        unit = UNIT_MAP.get(sensor_type, "")
-                        break
+                if "门磁" in product_name or "门窗" in product_name:
+                    sensor_type = SensorType.CONTACT
+                    unit = UNIT_MAP.get(sensor_type, "")
+                elif "插座" in product_name:
+                    sensor_type = SensorType.PLUG
+                    unit = UNIT_MAP.get(sensor_type, "")
+                else:
+                    for keyword, sensor_type_enum in PRODUCT_NAME_MAP:
+                        if keyword.lower() in classified_name.lower() or keyword.lower() in product_name.lower():
+                            sensor_type = sensor_type_enum
+                            unit = UNIT_MAP.get(sensor_type, "")
+                            break
 
         properties = device.get("properties", {})
-        if sensor_type is None and isinstance(properties, dict):
+        has_contact_state = False
+        has_switch_state = False
+        has_motion_state = False
+        
+        if isinstance(properties, dict):
             for prop_id, prop_value in properties.items():
-                if prop_id in PROPERTY_MAP:
+                if prop_id == "ContactState":
+                    has_contact_state = True
+                elif prop_id == "SwitchState":
+                    has_switch_state = True
+                elif prop_id == "MotionState" or prop_id == "OF" or prop_id == "DetectState":
+                    has_motion_state = True
+            
+            for prop_id, prop_value in properties.items():
+                if sensor_type is None and prop_id in PROPERTY_MAP:
                     sensor_type = PROPERTY_MAP[prop_id]
                     value = prop_value if prop_value is not None else 0
                     unit = UNIT_MAP.get(sensor_type, "")
-                    break
+                
+                if prop_id == "BatteryPercentage":
+                    battery_value = int(prop_value) if prop_value is not None else None
+                elif prop_id == "GasSensorState":
+                    gas_state = int(prop_value) if prop_value is not None else None
+                elif prop_id == "SmokeSensorState":
+                    smoke_state = int(prop_value) if prop_value is not None else None
+                elif prop_id == "WaterSensorState":
+                    water_state = int(prop_value) if prop_value is not None else None
+                elif prop_id == "ContactState":
+                    contact_state = int(prop_value) if prop_value is not None else None
+                    if sensor_type == SensorType.CONTACT:
+                        value = contact_state if contact_state is not None else 0
+                    elif sensor_type is None:
+                        sensor_type = SensorType.CONTACT
+                        value = contact_state if contact_state is not None else 0
+                        unit = UNIT_MAP.get(sensor_type, "")
+                elif prop_id == "SwitchState":
+                    switch_state = int(prop_value) if prop_value is not None else None
+                    if sensor_type == SensorType.PLUG:
+                        value = switch_state if switch_state is not None else 0
+                    elif sensor_type == SensorType.CONTACT:
+                        value = switch_state if switch_state is not None else 0
+                    elif sensor_type is None:
+                        if "门磁" in device_name or "门窗" in device_name:
+                            sensor_type = SensorType.CONTACT
+                            value = switch_state if switch_state is not None else 0
+                            unit = UNIT_MAP.get(sensor_type, "")
+                        else:
+                            sensor_type = SensorType.PLUG
+                            value = switch_state if switch_state is not None else 0
+                            unit = UNIT_MAP.get(sensor_type, "")
+                elif prop_id == "SignalLevel":
+                    signal_level = int(prop_value) if prop_value is not None else None
+                elif prop_id == "MotionState" or prop_id == "OF" or prop_id == "DetectState":
+                    motion_state = int(prop_value) if prop_value is not None else None
+                    if sensor_type == SensorType.MOTION:
+                        value = motion_state if motion_state is not None else 0
+                    elif sensor_type is None:
+                        sensor_type = SensorType.MOTION
+                        value = motion_state if motion_state is not None else 0
+                        unit = UNIT_MAP.get(sensor_type, "")
+                elif prop_id == "ALARM_STATE" or prop_id == "AlarmState":
+                    alarm_state = int(prop_value) if prop_value is not None else None
+                elif prop_id == "TamperState":
+                    tamper_state = int(prop_value) if prop_value is not None else None
+                elif prop_id == "SensorLifeStatus":
+                    sensor_life_status = int(prop_value) if prop_value is not None else None
+                elif prop_id == "CurrentTemperature":
+                    temp_value = float(prop_value) if prop_value is not None else None
+                elif prop_id == "CurrentHumidity":
+                    humidity_value = float(prop_value) if prop_value is not None else None
+                elif prop_id == "coValue" or prop_id == "CONC":
+                    if sensor_type == SensorType.CO:
+                        value = float(prop_value) if prop_value is not None else 0
+        
+        if sensor_type is not None:
+            if has_contact_state and sensor_type == SensorType.PLUG:
+                sensor_type = SensorType.CONTACT
+                if contact_state is not None:
+                    value = contact_state
+                unit = UNIT_MAP.get(SensorType.CONTACT, "")
+            elif has_motion_state and sensor_type == SensorType.PLUG:
+                sensor_type = SensorType.MOTION
+                if motion_state is not None:
+                    value = motion_state
+                unit = UNIT_MAP.get(SensorType.MOTION, "")
 
         if sensor_type is None:
             derive_metadata = device.get("deriveMetadata", "[]")
@@ -798,7 +1251,7 @@ class HeimanApiClient:
                                     if num_val is not None:
                                         value = num_val
                                     else:
-                                        value = float(prop_val) if prop_val else 0
+                                        value = float(prop_val) if prop_val is not None else 0
                                 except (ValueError, TypeError):
                                     value = 0
                             unit = UNIT_MAP.get(sensor_type, "")
@@ -846,12 +1299,21 @@ class HeimanApiClient:
 
         state_info = device.get("state", {})
         if isinstance(state_info, dict):
-            is_online = state_info.get("value", "offline") == "online"
+            state_value = state_info.get("value", "offline")
+            if isinstance(state_value, str):
+                is_online = state_value.lower() in ["online", "on", "1", "true"]
+            elif isinstance(state_value, (int, float)):
+                is_online = state_value != 0
+            else:
+                is_online = False
             state_update_time = state_info.get("updateTime") or state_info.get("time")
+            logger.debug("[HEIMAN API] Device %s state_info: %s, is_online=%s", device_id, state_info, is_online)
         else:
             is_online = device.get("online", True)
             if isinstance(is_online, str):
-                is_online = is_online.lower() == "online"
+                is_online = is_online.lower() in ["online", "on", "1", "true"]
+            elif isinstance(is_online, (int, float)):
+                is_online = is_online != 0
             state_update_time = None
 
         update_time = device.get("updateTime") or device.get("updatedTime") or device.get("createTime") or state_update_time
@@ -889,10 +1351,100 @@ class HeimanApiClient:
 
         status = self._determine_status(sensor_type, value, bool(is_online))
 
+        for prop in derive_metadata:
+            if isinstance(prop, dict):
+                prop_id = prop.get("property", "")
+                prop_val = prop.get("value")
+                num_val = prop.get("numberValue")
+                
+                if prop_id == "BatteryPercentage":
+                    battery_value = int(num_val) if num_val is not None else (int(prop_val) if prop_val is not None else None)
+                elif prop_id == "GasSensorState":
+                    gas_state = int(prop_val) if prop_val is not None else None
+                elif prop_id == "SmokeSensorState":
+                    smoke_state = int(prop_val) if prop_val is not None else None
+                elif prop_id == "WaterSensorState":
+                    water_state = int(prop_val) if prop_val is not None else None
+                elif prop_id == "ContactState":
+                    contact_state = int(prop_val) if prop_val is not None else None
+                    if sensor_type == SensorType.CONTACT:
+                        value = contact_state if contact_state is not None else 0
+                elif prop_id == "SwitchState":
+                    switch_state = int(prop_val) if prop_val is not None else None
+                    if sensor_type == SensorType.PLUG:
+                        value = switch_state if switch_state is not None else 0
+                elif prop_id == "SignalLevel":
+                    signal_level = int(prop_val) if prop_val is not None else None
+                elif prop_id == "MotionState" or prop_id == "OF" or prop_id == "DetectState":
+                    motion_state = int(prop_val) if prop_val is not None else None
+                    if sensor_type == SensorType.MOTION:
+                        value = motion_state if motion_state is not None else 0
+                elif prop_id == "ALARM_STATE" or prop_id == "AlarmState":
+                    alarm_state = int(prop_val) if prop_val is not None else None
+                elif prop_id == "TamperState":
+                    tamper_state = int(prop_val) if prop_val is not None else None
+                elif prop_id == "SensorLifeStatus":
+                    sensor_life_status = int(prop_val) if prop_val is not None else None
+                elif prop_id == "CONC":
+                    if sensor_type == SensorType.CO:
+                        value = num_val if num_val is not None else (float(prop_val) if prop_val is not None else 0)
+                elif prop_id == "coValue":
+                    if sensor_type == SensorType.CO:
+                        value = num_val if num_val is not None else (float(prop_val) if prop_val is not None else 0)
+                elif prop_id == "CurrentTemperature":
+                    temp_value = num_val if num_val is not None else (float(prop_val) if prop_val is not None else None)
+                elif prop_id == "CurrentHumidity":
+                    humidity_value = num_val if num_val is not None else (float(prop_val) if prop_val is not None else None)
+
+        if battery_value is None:
+            battery_value = device.get("battery")
+        if rssi_value is None:
+            rssi_value = device.get("rssi")
+        if signal_level is None:
+            signal_level = device.get("signalLevel")
+        if contact_state is None:
+            contact_state = device.get("contactState")
+        if gas_state is None:
+            gas_state = device.get("gasState")
+        if smoke_state is None:
+            smoke_state = device.get("smokeState")
+        if water_state is None:
+            water_state = device.get("waterState")
+        if motion_state is None:
+            motion_state = device.get("motionState")
+        if switch_state is None:
+            switch_state = device.get("switchState")
+        if alarm_state is None:
+            alarm_state = device.get("alarmState")
+        if tamper_state is None:
+            tamper_state = device.get("tamperState")
+        if sensor_life_status is None:
+            sensor_life_status = device.get("sensorLifeStatus")
+        if temp_value is None:
+            temp_value = device.get("temperature")
+        if humidity_value is None:
+            humidity_value = device.get("humidity")
+        if co2_value is None:
+            co2_value = device.get("co2")
+        if pm25_value is None:
+            pm25_value = device.get("pm25")
+        if pm10_value is None:
+            pm10_value = device.get("pm10")
+        if hcho_value is None:
+            hcho_value = device.get("hcho")
+
+        if sensor_type == SensorType.CONTACT and contact_state is not None:
+            value = contact_state
+        elif sensor_type == SensorType.MOTION and motion_state is not None:
+            value = motion_state
+        elif sensor_type == SensorType.PLUG and switch_state is not None:
+            value = switch_state
+
         return SensorData(
             did=device_id,
             name=device_name,
             sensor_type=sensor_type,
+            product_id=product_id,
             value=value,
             unit=unit,
             status=status,
@@ -900,6 +1452,24 @@ class HeimanApiClient:
             room_name=room_name,
             home_id=home_id,
             icon=ICON_MAP.get(sensor_type),
+            battery=battery_value,
+            rssi=rssi_value,
+            signalLevel=signal_level,
+            contactState=contact_state,
+            tamperState=tamper_state,
+            sensorLifeStatus=sensor_life_status,
+            alarmState=alarm_state,
+            smokeState=smoke_state,
+            gasState=gas_state,
+            waterState=water_state,
+            motionState=motion_state,
+            switchState=switch_state,
+            temperature=temp_value,
+            humidity=humidity_value,
+            co2=co2_value,
+            pm25=pm25_value,
+            pm10=pm10_value,
+            hcho=hcho_value,
             timestamp=sensor_timestamp,
         )
 
@@ -920,12 +1490,17 @@ class HeimanApiClient:
         if not is_online:
             return SensorStatus.OFFLINE
 
-        if sensor_type == SensorType.SMOKE and value == 1:
-            return SensorStatus.ALARM
-        elif sensor_type == SensorType.WATER and value == 1:
-            return SensorStatus.ALARM
-        elif sensor_type == SensorType.CO and int(value) > 0:
-            return SensorStatus.ALARM
+        if sensor_type == SensorType.SMOKE:
+            if value == 1:
+                return SensorStatus.ALARM
+        elif sensor_type == SensorType.WATER:
+            if value == 1:
+                return SensorStatus.ALARM
+        elif sensor_type == SensorType.CO:
+            if int(value) >= 100:
+                return SensorStatus.ALARM
+            elif int(value) > 0:
+                return SensorStatus.WARNING
         elif sensor_type == SensorType.TEMPERATURE:
             if value > 35:
                 return SensorStatus.WARNING
@@ -936,6 +1511,20 @@ class HeimanApiClient:
                 return SensorStatus.WARNING
             elif value < 20:
                 return SensorStatus.WARNING
+        elif sensor_type == SensorType.CONTACT:
+            if value == 2:
+                return SensorStatus.ALARM
+            elif value == 1:
+                return SensorStatus.WARNING
+        elif sensor_type == SensorType.MOTION:
+            if value == 1:
+                return SensorStatus.WARNING
+        elif sensor_type == SensorType.PLUG:
+            if value == 2:
+                return SensorStatus.ALARM
+        elif sensor_type == SensorType.SIREN:
+            if value == 1:
+                return SensorStatus.ALARM
 
         return SensorStatus.NORMAL
 
@@ -1042,7 +1631,9 @@ class HeimanApiClient:
             )
 
             if result.get("status") == 200:
-                members = result.get("result", {}).get("list", [])
+                members = result.get("result", [])
+                if isinstance(members, dict):
+                    members = members.get("list", [])
                 if not isinstance(members, list):
                     members = []
                 return members

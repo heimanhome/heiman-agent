@@ -5,6 +5,23 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+def _record_token_usage(model: str, usage: dict, usage_type: str = "api") -> None:
+    try:
+        from heiman.database.token_usage_repo import get_token_usage_repo
+        repo = get_token_usage_repo()
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        if prompt_tokens > 0 or completion_tokens > 0:
+            repo.record_usage(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                usage_type=usage_type,
+            )
+            logger.debug(f"[TOKEN] Recorded usage: model={model}, prompt={prompt_tokens}, completion={completion_tokens}")
+    except Exception as e:
+        logger.warning(f"[TOKEN] Failed to record token usage: {e}")
+
 
 class LlmProvider(Enum):
     OPENAI = "openai"
@@ -75,6 +92,13 @@ class LlmClient:
                 temperature=0.7,
                 max_tokens=500,
             )
+
+            if hasattr(response, 'usage'):
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                }
+                _record_token_usage(model, usage)
 
             return response.choices[0].message.content.strip()
         except Exception as e:

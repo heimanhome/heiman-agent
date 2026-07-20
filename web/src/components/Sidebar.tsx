@@ -72,35 +72,35 @@ export function Sidebar() {
   return (
     <>
       <aside
-        className="hidden md:flex flex-col shrink-0 border-r border-[#1e3a5f] bg-[#0a1628] w-[15%] min-w-[172px]"
+        className="hidden md:flex flex-col shrink-0 border-r border-gray-200 dark:border-[#1e3a5f] bg-white dark:bg-white dark:bg-[#0a1628] w-[15%] min-w-[172px]"
       >
         <header
-          className="flex items-center gap-2.5 shrink-0 border-b border-[#1e3a5f]"
+          className="flex items-center gap-2.5 shrink-0 border-b border-gray-200 dark:border-[#1e3a5f]"
           style={{ minHeight: 64, paddingLeft: 18, paddingRight: 18 }}
         >
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#00d4ff] to-[#00ff88] flex items-center justify-center">
-            <Flame className="w-4 h-4 text-[#0a1628]" />
+          <div className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+            <Flame className="w-4 h-4 text-gray-700 dark:text-gray-300" />
           </div>
-          <span className="text-title text-white">Heiman</span>
+          <span className="text-title text-gray-900 dark:text-gray-100">Heiman</span>
         </header>
 
-        <nav className="flex-1 px-2 py-2.5 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `w-full flex items-center rounded-lg transition-colors text-left gap-3 px-3 py-2.5 ${
+                `w-full flex items-center rounded-lg transition-colors text-left gap-3 px-3 py-3 ${
                   isActive
-                    ? "bg-[#00d4ff]/10 text-[#00d4ff]"
-                    : "text-[#6b7a9a] hover:bg-white/5 hover:text-white"
+                    ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    : "text-gray-600 dark:text-[#6b7a9a] hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-900 dark:hover:text-gray-200"
                 }`
               }
             >
               <item.icon className="w-5 h-5 shrink-0" />
-              <div className="flex flex-col min-w-0">
-                <span className="text-sm font-semibold leading-tight">{t(`menu.${item.menuKey}.title`)}</span>
-                <span className="text-xs leading-tight mt-0.5 opacity-70 truncate">{t(`menu.${item.menuKey}.subtitle`)}</span>
+              <div className="flex flex-col min-w-0 leading-tight">
+                <span className="text-sm font-semibold">{t(`menu.${item.menuKey}.title`)}</span>
+                <span className="text-xs opacity-60 mt-0.5">{t(`menu.${item.menuKey}.subtitle`)}</span>
               </div>
             </NavLink>
           ))}
@@ -108,7 +108,7 @@ export function Sidebar() {
 
         <div
           ref={accountRowRef}
-          className="px-3 py-3 border-t border-[#1e3a5f] flex items-center gap-2 cursor-pointer hover:bg-white/5 transition-colors"
+          className="px-3 py-3 border-t border-gray-200 dark:border-[#1e3a5f] flex items-center gap-2 cursor-pointer hover:bg-white/5 transition-colors"
           onClick={(e) => {
             const target = e.target as HTMLElement;
             if (target.closest("button") || target.closest('[role="menu"]')) return;
@@ -147,7 +147,7 @@ export function MobileTabBar() {
   const { t } = useTranslation("app");
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0a1628] border-t border-[#1e3a5f] md:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[#0a1628] border-t border-gray-200 dark:border-[#1e3a5f] md:hidden">
       <div className="flex items-center justify-around p-2">
         {navItems.map((item) => (
           <NavLink
@@ -156,8 +156,8 @@ export function MobileTabBar() {
             className={({ isActive }) =>
               `flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors ${
                 isActive
-                  ? "text-[#00d4ff]"
-                  : "text-[#6b7a9a]"
+                  ? "text-gray-900 dark:text-gray-100"
+                  : "text-gray-500 dark:text-[#6b7a9a]"
               }`
             }
           >

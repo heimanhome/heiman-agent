@@ -109,17 +109,17 @@ export function Tasks() {
           </div>
           <div className="flex gap-2 mt-2">
             <button
-              onClick={() => handleIncrement(task.task_id, 1)}
-              className="text-xs px-2 py-1 bg-[#2a3142] text-white rounded hover:bg-[#3a4152]"
-            >
-              +1
-            </button>
-            <button
-              onClick={() => handleIncrement(task.task_id, 10)}
-              className="text-xs px-2 py-1 bg-[#2a3142] text-white rounded hover:bg-[#3a4152]"
-            >
-              +10
-            </button>
+                onClick={() => handleIncrement(task.task_id, 1)}
+                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+              >
+                +1
+              </button>
+              <button
+                onClick={() => handleIncrement(task.task_id, 10)}
+                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+              >
+                +10
+              </button>
           </div>
         </div>
       );
@@ -136,14 +136,14 @@ export function Tasks() {
             {rec.active_session_start_at ? (
               <button
                 onClick={() => handleEndSession(task.task_id)}
-                className="text-xs px-2 py-1 bg-[#ff6b6b] text-white rounded hover:bg-[#ff5252]"
+                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
               >
                 {t('endSession')}
               </button>
             ) : (
               <button
                 onClick={() => handleStartSession(task.task_id)}
-                className="text-xs px-2 py-1 bg-[#00ff88] text-[#0a0e1a] rounded hover:bg-[#00e078]"
+                className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
               >
                 {t('startSession')}
               </button>
@@ -159,11 +159,11 @@ export function Tasks() {
           {t('total')}: {rec.total_count} | {t('today')}: {rec.today_count}
         </p>
         <button
-          onClick={() => handleAppendEvent(task.task_id)}
-          className="text-xs px-2 py-1 mt-2 bg-[#2a3142] text-white rounded hover:bg-[#3a4152]"
-        >
-          + {t('appendEvent')}
-        </button>
+                onClick={() => handleAppendEvent(task.task_id)}
+                className="text-xs px-2 py-1 mt-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+              >
+                + {t('appendEvent')}
+              </button>
       </div>
     );
   };
@@ -180,7 +180,7 @@ export function Tasks() {
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="px-4 py-2 bg-[#00d4ff] text-[#0a0e1a] rounded font-semibold hover:bg-[#00b8e6] flex items-center gap-2"
+          className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded font-semibold hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
           {t('newTask')}
@@ -248,11 +248,11 @@ export function Tasks() {
               />
             )}
             <button
-              onClick={handleCreate}
-              className="px-4 py-2 bg-[#00d4ff] text-[#0a0e1a] rounded font-semibold hover:bg-[#00b8e6]"
-            >
-              {t('create')}
-            </button>
+            onClick={handleCreate}
+            className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded font-semibold hover:bg-gray-200 dark:hover:bg-gray-700"
+          >
+            {t('create')}
+          </button>
           </div>
         </div>
       )}
@@ -275,35 +275,35 @@ export function Tasks() {
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  {task.record?.kind === 'progress' && <BarChart3 className="w-4 h-4 text-[#00d4ff]" />}
-                  {task.record?.kind === 'duration' && <Clock className="w-4 h-4 text-[#00d4ff]" />}
-                  {task.record?.kind === 'event' && <ListChecks className="w-4 h-4 text-[#00d4ff]" />}
+                  {task.record?.kind === 'progress' && <BarChart3 className="w-4 h-4 text-gray-900 dark:text-white" />}
+                  {task.record?.kind === 'duration' && <Clock className="w-4 h-4 text-gray-900 dark:text-white" />}
+                  {task.record?.kind === 'event' && <ListChecks className="w-4 h-4 text-gray-900 dark:text-white" />}
                   <h3 className="text-white font-semibold">{task.description}</h3>
                 </div>
                 <div className="flex gap-1">
                   {task.status === 'active' ? (
                     <button
                       onClick={() => handlePause(task.task_id)}
-                      className="p-1.5 hover:bg-[#2a3142] rounded"
+                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
                       aria-label={t('pause')}
                     >
-                      <Pause className="w-4 h-4 text-yellow-400" />
+                      <Pause className="w-4 h-4 text-gray-900 dark:text-white" />
                     </button>
                   ) : (
                     <button
                       onClick={() => handleResume(task.task_id)}
-                      className="p-1.5 hover:bg-[#2a3142] rounded"
+                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
                       aria-label={t('resume')}
                     >
-                      <Play className="w-4 h-4 text-[#00ff88]" />
+                      <Play className="w-4 h-4 text-gray-900 dark:text-white" />
                     </button>
                   )}
                   <button
                     onClick={() => handleDelete(task.task_id)}
-                    className="p-1.5 hover:bg-[#2a3142] rounded"
+                    className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
                     aria-label={t('delete')}
                   >
-                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <Trash2 className="w-4 h-4 text-gray-900 dark:text-white" />
                   </button>
                 </div>
               </div>

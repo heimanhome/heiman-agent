@@ -62,29 +62,28 @@ class PersonService:
         synced_ids = []
 
         for member in members:
-            user_id = str(member.get("userId") or member.get("user_id") or "")
+            user_id = str(member.get("userId") or member.get("user_id") or member.get("id") or "")
             if not user_id:
                 continue
 
             user_name = (
-                member.get("userName")
+                member.get("nickName")
+                or member.get("userName")
                 or member.get("user_name")
                 or member.get("aliasName")
                 or member.get("alias_name")
                 or member.get("nickname")
                 or "未知成员"
             )
-            role = member.get("role")
             is_home_root = member.get("isHomeRoot") or member.get("is_home_root") or 0
-            status = member.get("status") or 1
+            status = member.get("status") or member.get("userStatus") or 1
 
-            role_str = None
-            if role == 0:
+            if is_home_root == 1:
                 role_str = "owner"
-            elif role == 1:
-                role_str = "admin"
-            elif role == 2:
+                role_type = 0
+            else:
                 role_str = "member"
+                role_type = 2
 
             existing = self._person_repo.get_by_user_id(user_id)
             if existing:
@@ -104,7 +103,7 @@ class PersonService:
                     "user_account": member.get("userAccount") or member.get("user_account"),
                     "alias_name": member.get("aliasName") or member.get("alias_name"),
                     "head_img_url": member.get("headImgUrl") or member.get("head_img_url"),
-                    "role_type": role,
+                    "role_type": role_type,
                     "remark": member.get("remark"),
                 }
                 update_data.update(extra_fields)
@@ -124,7 +123,7 @@ class PersonService:
                     alias_name=member.get("aliasName") or member.get("alias_name"),
                     head_img_url=member.get("headImgUrl") or member.get("head_img_url"),
                     is_home_root=is_home_root,
-                    role_type=role,
+                    role_type=role_type,
                     status=status,
                     remark=member.get("remark"),
                 )

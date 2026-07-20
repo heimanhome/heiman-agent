@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Cpu, ChevronDown, ChevronUp, Trash2, Play, RotateCcw, Plus, AlertCircle, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { adminApi, observabilityApi } from '../api/client';
-import type { OmniConfig, OmniProfile } from '../api/client';
+import type { HeimanConfig, HeimanProfile } from '../api/client';
 
 type Period = 'today' | '7d' | '30d';
 
@@ -40,9 +40,9 @@ interface TokenUsageDaily {
 
 const INPUT_CLS =
   "w-full px-3 py-2 rounded-lg bg-[#0f1419] border border-[#2a3142] " +
-  "focus:border-[#00d4ff] focus:outline-none text-white text-sm";
+  "focus:border-[#00d4ff] focus:outline-none text-gray-900 dark:text-white text-sm";
 
-const OMNI_CODE_MESSAGES: Record<string, string> = {
+const HEIMAN_CODE_MESSAGES: Record<string, string> = {
   ok: '连接正常',
   ok_model_found: '连接正常，模型可用',
   bad_key: 'API Key 无效或无权限',
@@ -120,7 +120,7 @@ function ComboBox({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6b7a9a] px-1 text-lg leading-none"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-900 dark:text-white px-1 text-lg leading-none"
         >
           ▾
         </button>
@@ -130,13 +130,13 @@ function ComboBox({
           {list.map((o) => (
             <li key={o}>
               <button
-                type="button"
-                onClick={() => {
-                  onChange(o);
-                  setOpen(false);
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-white hover:bg-[#1a2030]"
-              >
+                  type="button"
+                  onClick={() => {
+                    onChange(o);
+                    setOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700"
+                >
                 {o}
               </button>
             </li>
@@ -166,8 +166,8 @@ export function Models() {
   const [binMinutes, setBinMinutes] = useState(60);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const [omniConfig, setOmniConfig] = useState<OmniConfig | null>(null);
-  const [omniError, setOmniError] = useState<string | null>(null);
+  const [heimanConfig, setHeimanConfig] = useState<HeimanConfig | null>(null);
+  const [heimanError, setHeimanError] = useState<string | null>(null);
   const [configCollapsed, setConfigCollapsed] = useState(false);
 
   const [adding, setAdding] = useState(false);
@@ -188,15 +188,15 @@ export function Models() {
   const [buckets, setBuckets] = useState<TokenUsageBucket[]>([]);
   const [daily, setDaily] = useState<TokenUsageDaily[]>([]);
 
-  const profiles = omniConfig?.profiles ?? [];
-  const active = omniConfig?.active;
+  const profiles = heimanConfig?.profiles ?? [];
+  const active = heimanConfig?.active;
   const hasKey = active?.has_key ?? false;
   const existing = profiles.find(
     (p) => p.base_url === baseUrl.trim() && p.model === model.trim(),
   );
 
   useEffect(() => {
-    loadOmniConfig();
+    loadHeimanConfig();
   }, []);
 
   useEffect(() => {
@@ -214,13 +214,13 @@ export function Models() {
     setToast({ message, type });
   };
 
-  async function loadOmniConfig() {
+  async function loadHeimanConfig() {
     try {
-      const res = await adminApi.getOmniConfig();
-      setOmniConfig(res.data?.data || null);
-      setOmniError(null);
+      const res = await adminApi.getHeimanConfig();
+      setHeimanConfig(res.data?.data || null);
+      setHeimanError(null);
     } catch (e) {
-      setOmniError(e instanceof Error ? e.message : '加载失败');
+      setHeimanError(e instanceof Error ? e.message : '加载失败');
     }
   }
 
@@ -265,14 +265,14 @@ export function Models() {
     setModelsLoading(true);
     setModelsMsg(null);
     try {
-      const res = await adminApi.listOmniModels({ base_url: bu.trim(), api_key: key.trim() || undefined });
+      const res = await adminApi.listHeimanModels({ base_url: bu.trim(), api_key: key.trim() || undefined });
       const data = res.data?.data;
       if (data?.ok) {
         setModels(data.models || []);
         if (!data.models?.length) setModelsMsg('无可用模型');
       } else {
         setModels([]);
-        const msg = data?.code ? OMNI_CODE_MESSAGES[data.code] || data.message : data?.message || '获取失败';
+        const msg = data?.code ? HEIMAN_CODE_MESSAGES[data.code] || data.message : data?.message || '获取失败';
         setModelsMsg(msg);
       }
     } catch (e) {
@@ -306,7 +306,7 @@ export function Models() {
     }
     setSaving(true);
     try {
-      const res = await adminApi.saveOmniConfig({
+      const res = await adminApi.saveHeimanConfig({
         label: existing ? existing.label : `${m} @ ${bu}`,
         model: m,
         base_url: bu,
@@ -314,7 +314,7 @@ export function Models() {
         original_label: existing ? existing.label : undefined,
         activate: false,
       });
-      setOmniConfig(res.data?.data || null);
+      setHeimanConfig(res.data?.data || null);
       setAdding(false);
       showToast('保存成功', 'ok');
     } catch (e) {
@@ -338,7 +338,7 @@ export function Models() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await adminApi.testOmniConfig({
+      const res = await adminApi.testHeimanConfig({
         label: existing ? existing.label : '',
         model: m,
         base_url: bu,
@@ -353,21 +353,21 @@ export function Models() {
     }
   }
 
-  async function onActivate(p: OmniProfile) {
+  async function onActivate(p: HeimanProfile) {
     try {
-      const res = await adminApi.activateOmniConfig(p.label);
-      setOmniConfig(res.data?.data || null);
+      const res = await adminApi.activateHeimanConfig(p.label);
+      setHeimanConfig(res.data?.data || null);
       showToast('已启用', 'ok');
     } catch (e) {
       showToast(e instanceof Error ? e.message : '启用失败', 'danger');
     }
   }
 
-  async function onDelete(p: OmniProfile) {
+  async function onDelete(p: HeimanProfile) {
     if (!window.confirm(`确定删除 ${p.model} @ ${hostOf(p.base_url)} 吗？`)) return;
     try {
-      const res = await adminApi.deleteOmniConfig(p.label);
-      setOmniConfig(res.data?.data || null);
+      const res = await adminApi.deleteHeimanConfig(p.label);
+      setHeimanConfig(res.data?.data || null);
       showToast('已删除', 'ok');
     } catch (e) {
       showToast(e instanceof Error ? e.message : '删除失败', 'danger');
@@ -406,12 +406,12 @@ export function Models() {
       {toast && <Toast message={toast.message} type={toast.type} />}
 
       <div className="mb-6">
-        <h1 className="text-xl font-semibold text-white">模型与用量</h1>
-        <p className="text-sm text-[#6b7a9a] mt-1">管理 Omni 模型配置，查看 Token 用量统计</p>
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">模型与用量</h1>
+        <p className="text-sm text-gray-500 dark:text-[#6b7a9a] mt-1">管理 Heiman 模型配置，查看 Token 用量统计</p>
       </div>
 
       <div className="space-y-6">
-        {/* Omni 配置卡片 */}
+        {/* Heiman 配置卡片 */}
         <section className="rounded-xl bg-[#0f1419] border border-[#2a3142] p-5 md:p-6">
           <button
             type="button"
@@ -419,24 +419,24 @@ export function Models() {
             className="w-full flex items-center justify-between gap-3 text-left"
           >
             <span className="flex items-baseline gap-3 flex-wrap">
-              <span className="text-base font-semibold text-white">Omni 模型配置</span>
+              <span className="text-base font-semibold text-gray-900 dark:text-white">Heiman 模型配置</span>
               {configCollapsed && active && (
-                <span className="text-sm text-[#6b7a9a]">
+                <span className="text-sm text-gray-500 dark:text-[#6b7a9a]">
                   当前: {hasKey ? `${active.model} · ${hostOf(active.base_url)}` : '未配置 API Key'}
                 </span>
               )}
             </span>
-            <span className="text-[#6b7a9a] text-sm">
+            <span className="text-gray-500 dark:text-[#6b7a9a] text-sm">
               {configCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </span>
           </button>
 
           {!configCollapsed && (
             <div className="mt-4">
-              {omniError ? (
-                <div className="text-red-400 text-center py-6">{omniError}</div>
-              ) : !omniConfig || !active ? (
-                <div className="text-[#6b7a9a] text-center py-6">加载中...</div>
+              {heimanError ? (
+                <div className="text-red-400 text-center py-6">{heimanError}</div>
+              ) : !heimanConfig || !active ? (
+                <div className="text-gray-500 dark:text-[#6b7a9a] text-center py-6">加载中...</div>
               ) : (
                 <>
                   {!hasKey && (
@@ -448,7 +448,7 @@ export function Models() {
                   <div className="overflow-x-auto -mx-5 md:-mx-6">
                     <table className="w-full text-sm whitespace-nowrap">
                       <thead>
-                        <tr className="text-[#6b7a9a] border-b border-[#2a3142]">
+                        <tr className="text-gray-500 dark:text-[#6b7a9a] border-b border-[#2a3142]">
                           <th className="text-left px-5 md:px-6 py-2 font-medium">模型</th>
                           <th className="text-left px-3 py-2 font-medium">Base URL</th>
                           <th className="text-left px-3 py-2 font-medium">API Key</th>
@@ -458,7 +458,7 @@ export function Models() {
                       <tbody>
                         {profiles.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-5 md:px-6 py-5 text-center text-[#6b7a9a]">
+                            <td colSpan={4} className="px-5 md:px-6 py-5 text-center text-gray-500 dark:text-[#6b7a9a]">
                               暂无配置
                             </td>
                           </tr>
@@ -468,32 +468,32 @@ export function Models() {
                               key={p.label}
                               className={`border-b border-[#2a3142] last:border-b-0 ${p.active ? 'bg-[#00d4ff]/5' : ''}`}
                             >
-                              <td className="px-5 md:px-6 py-2.5 text-white font-mono">{p.model}</td>
-                              <td className="px-3 py-2.5 text-[#6b7a9a] font-mono text-xs">{p.base_url}</td>
-                              <td className="px-3 py-2.5 text-[#6b7a9a] font-mono text-xs">
+                              <td className="px-5 md:px-6 py-2.5 text-gray-900 dark:text-white font-mono">{p.model}</td>
+                              <td className="px-3 py-2.5 text-gray-500 dark:text-[#6b7a9a] font-mono text-xs">{p.base_url}</td>
+                              <td className="px-3 py-2.5 text-gray-500 dark:text-[#6b7a9a] font-mono text-xs">
                                 {p.has_key ? p.api_key_masked : '未配置'}
                               </td>
                               <td className="px-5 md:px-6 py-2.5 text-right whitespace-nowrap">
                                 {p.active ? (
-                                  <span className="inline-block rounded-md px-2.5 py-1 bg-[#00d4ff] text-[#0a1628] text-xs font-medium mr-3">
+                                  <span className="inline-block rounded-md px-2.5 py-1 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white text-xs font-medium mr-3">
                                     当前使用
                                   </span>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() => onActivate(p)}
-                                    className="hover:bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff] rounded-md px-2.5 py-1 mr-3 text-xs"
+                                    className="hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-md px-2.5 py-1 mr-3 text-xs"
                                   >
                                     启用
                                   </button>
                                 )}
                                 <button
-                                  type="button"
-                                  onClick={() => onDelete(p)}
-                                  className="text-[#6b7a9a] hover:text-red-400 inline-flex items-center"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                type="button"
+                onClick={() => onDelete(p)}
+                className="p-1.5 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 inline-flex items-center rounded"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
                               </td>
                             </tr>
                           ))
@@ -506,7 +506,7 @@ export function Models() {
                     <button
                       type="button"
                       onClick={startAdd}
-                      className="mt-3 text-sm text-[#6b7a9a] hover:text-[#00d4ff] inline-flex items-center gap-1"
+                      className="mt-3 text-sm text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center gap-1"
                     >
                       <Plus className="w-4 h-4" /> 新增模型
                     </button>
@@ -514,11 +514,11 @@ export function Models() {
 
                   {adding && (
                     <div className="mt-4 rounded-lg bg-[#0a1628] border border-[#2a3142] p-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 items-start">
-                      <div className="md:col-span-2 text-sm text-[#6b7a9a]">
-                        添加新的 Omni 模型配置，或更新已有配置
+                      <div className="md:col-span-2 text-sm text-gray-500 dark:text-[#6b7a9a]">
+                        添加新的 Heiman 模型配置，或更新已有配置
                       </div>
                       <div className="md:col-span-2">
-                        <label className="block text-sm text-[#6b7a9a] mb-1">Base URL</label>
+                        <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-1">Base URL</label>
                         <input
                           value={baseUrl}
                           onChange={(e) => {
@@ -531,7 +531,7 @@ export function Models() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-[#6b7a9a] mb-1">API Key</label>
+                        <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-1">API Key</label>
                         <input
                           type="password"
                           value={apiKey}
@@ -546,7 +546,7 @@ export function Models() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-[#6b7a9a] mb-1">模型</label>
+                        <label className="block text-sm text-gray-500 dark:text-[#6b7a9a] mb-1">模型</label>
                         <ComboBox
                           value={model}
                           onChange={(v) => {
@@ -556,7 +556,7 @@ export function Models() {
                           options={models}
                           placeholder={modelsLoading ? '加载中...' : '选择或输入模型名'}
                         />
-                        <span className="text-xs text-[#6b7a9a] mt-1 block">
+                        <span className="text-xs text-gray-500 dark:text-[#6b7a9a] mt-1 block">
                           {modelsLoading
                             ? '正在获取模型列表...'
                             : modelsMsg
@@ -571,7 +571,7 @@ export function Models() {
                           type="button"
                           onClick={onSave}
                           disabled={saving || testing}
-                          className="px-5 py-2 rounded-lg bg-gradient-to-r from-[#00d4ff] to-[#00ff88] text-[#0a1628] font-medium hover:opacity-90 disabled:opacity-60 text-sm"
+                          className="px-5 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white font-medium hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60 text-sm"
                         >
                           {saving ? '保存中...' : '保存'}
                         </button>
@@ -579,7 +579,7 @@ export function Models() {
                           type="button"
                           onClick={onTest}
                           disabled={saving || testing}
-                          className="px-5 py-2 rounded-lg bg-[#0f1419] border border-[#2a3142] text-white hover:border-[#00d4ff] disabled:opacity-60 text-sm inline-flex items-center gap-2"
+                          className="px-5 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60 text-sm inline-flex items-center gap-2"
                         >
                           {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                           {testing ? '测试中...' : '测试连接'}
@@ -591,14 +591,14 @@ export function Models() {
                             setTestResult(null);
                           }}
                           disabled={saving || testing}
-                          className="px-3 py-2 rounded-lg text-sm text-[#6b7a9a] hover:text-white"
+                          className="px-3 py-2 rounded-lg text-sm bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60"
                         >
                           取消
                         </button>
                         {testResult && (
                           <span className={`text-sm ${testResult.ok ? 'text-green-400' : 'text-red-400'} inline-flex items-center gap-1`}>
                             {testResult.ok ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                            {testResult.code ? OMNI_CODE_MESSAGES[testResult.code] || testResult.message : testResult.message}
+                            {testResult.code ? HEIMAN_CODE_MESSAGES[testResult.code] || testResult.message : testResult.message}
                             {testResult.latency_ms != null ? ` · ${testResult.latency_ms}ms` : ''}
                           </span>
                         )}
@@ -614,7 +614,7 @@ export function Models() {
         {/* Token 用量卡片 */}
         <section className="rounded-xl bg-[#0f1419] border border-[#2a3142] p-5 md:p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <h2 className="text-base font-semibold text-white">Token 用量</h2>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Token 用量</h2>
             <div className="flex items-center gap-2">
               <div className="flex rounded-lg border border-[#2a3142] overflow-hidden">
                 {(['today', '7d', '30d'] as Period[]).map((p) => (
@@ -623,8 +623,8 @@ export function Models() {
                     onClick={() => setPeriod(p)}
                     className={`px-3 py-1.5 text-sm ${
                       period === p
-                        ? 'bg-[#00d4ff] text-[#0a1628]'
-                        : 'bg-[#0a1628] text-[#6b7a9a] hover:text-white'
+                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700'
                     }`}
                   >
                     {p === 'today' ? '今日' : p === '7d' ? '近7天' : '近30天'}
@@ -633,7 +633,7 @@ export function Models() {
               </div>
               <button
                 onClick={onClearUsage}
-                className="px-3 py-1.5 rounded-lg border border-[#2a3142] text-[#6b7a9a] hover:text-red-400 hover:border-red-400/30 text-sm inline-flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700 text-sm inline-flex items-center gap-1"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 清空
@@ -642,7 +642,7 @@ export function Models() {
           </div>
 
           {usageLoading ? (
-            <div className="py-8 text-center text-[#6b7a9a]">加载中...</div>
+            <div className="py-8 text-center text-gray-500 dark:text-[#6b7a9a]">加载中...</div>
           ) : usageError ? (
             <div className="py-8 text-center text-red-400">{usageError}</div>
           ) : (
@@ -650,26 +650,26 @@ export function Models() {
               {/* 总览 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                 <div className="bg-[#0a1628] rounded-lg p-4">
-                  <p className="text-xs text-[#6b7a9a] mb-1">总 Token</p>
-                  <p className="text-xl font-bold text-white">
+                  <p className="text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">总 Token</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">
                     {formatNumber(period === 'today' ? totalAll : dailyTotalAll)}
                   </p>
                 </div>
                 <div className="bg-[#0a1628] rounded-lg p-4">
-                  <p className="text-xs text-[#6b7a9a] mb-1">Prompt</p>
+                  <p className="text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">Prompt</p>
                   <p className="text-xl font-bold text-[#00d4ff]">
                     {formatNumber(period === 'today' ? totalPrompt : dailyTotalPrompt)}
                   </p>
                 </div>
                 <div className="bg-[#0a1628] rounded-lg p-4">
-                  <p className="text-xs text-[#6b7a9a] mb-1">Completion</p>
+                  <p className="text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">Completion</p>
                   <p className="text-xl font-bold text-[#00ff88]">
                     {formatNumber(period === 'today' ? totalCompletion : dailyTotalCompletion)}
                   </p>
                 </div>
                 <div className="bg-[#0a1628] rounded-lg p-4">
-                  <p className="text-xs text-[#6b7a9a] mb-1">请求次数</p>
-                  <p className="text-xl font-bold text-white">
+                  <p className="text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">请求次数</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">
                     {formatNumber(period === 'today' ? totalRequests : dailyTotalRequests)}
                   </p>
                 </div>
@@ -679,11 +679,11 @@ export function Models() {
               {period === 'today' && (
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm text-[#6b7a9a]">时间分布</p>
+                    <p className="text-sm text-gray-500 dark:text-[#6b7a9a]">时间分布</p>
                     <select
                       value={binMinutes}
                       onChange={(e) => setBinMinutes(Number(e.target.value))}
-                      className="bg-[#0a1628] border border-[#2a3142] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#00d4ff]"
+                      className="bg-[#0a1628] border border-[#2a3142] rounded px-2 py-1 text-xs text-gray-900 dark:text-white focus:outline-none focus:border-[#00d4ff]"
                     >
                       <option value={15}>15 分钟</option>
                       <option value={30}>30 分钟</option>
@@ -692,7 +692,7 @@ export function Models() {
                     </select>
                   </div>
                   {buckets.length === 0 ? (
-                    <div className="py-8 text-center text-[#6b7a9a] text-sm">暂无数据</div>
+                    <div className="py-8 text-center text-gray-500 dark:text-[#6b7a9a] text-sm">暂无数据</div>
                   ) : (
                     <div className="h-32 flex items-end gap-1">
                       {buckets.slice().reverse().map((b, i) => (
@@ -710,13 +710,13 @@ export function Models() {
 
               {/* 明细表 */}
               <div>
-                <p className="text-sm text-[#6b7a9a] mb-2">
+                <p className="text-sm text-gray-500 dark:text-[#6b7a9a] mb-2">
                   {period === 'today' ? '今日明细' : '每日明细'}
                 </p>
                 <div className="overflow-x-auto -mx-5 md:-mx-6">
                   <table className="w-full text-sm whitespace-nowrap">
                     <thead>
-                      <tr className="text-[#6b7a9a] border-b border-[#2a3142]">
+                      <tr className="text-gray-500 dark:text-[#6b7a9a] border-b border-[#2a3142]">
                         <th className="text-left px-5 md:px-6 py-2 font-medium">
                           {period === 'today' ? '时间' : '日期'}
                         </th>
@@ -732,7 +732,7 @@ export function Models() {
                         <tr>
                           <td
                             colSpan={6}
-                            className="px-5 md:px-6 py-5 text-center text-[#6b7a9a]"
+                            className="px-5 md:px-6 py-5 text-center text-gray-500 dark:text-[#6b7a9a]"
                           >
                             暂无数据
                           </td>
@@ -743,12 +743,12 @@ export function Models() {
                             key={i}
                             className="border-b border-[#2a3142] last:border-b-0"
                           >
-                            <td className="px-5 md:px-6 py-2.5 text-white">
+                            <td className="px-5 md:px-6 py-2.5 text-gray-900 dark:text-white">
                               {period === 'today'
                                 ? formatTime(row.bucket_start)
                                 : formatDate(row.date)}
                             </td>
-                            <td className="px-3 py-2.5 text-[#6b7a9a] font-mono text-xs">
+                            <td className="px-3 py-2.5 text-gray-500 dark:text-[#6b7a9a] font-mono text-xs">
                               {row.model || '-'}
                             </td>
                             <td className="px-3 py-2.5 text-right text-[#00d4ff]">
@@ -757,10 +757,10 @@ export function Models() {
                             <td className="px-3 py-2.5 text-right text-[#00ff88]">
                               {formatNumber(row.completion_tokens)}
                             </td>
-                            <td className="px-3 py-2.5 text-right text-white font-medium">
+                            <td className="px-3 py-2.5 text-right text-gray-900 dark:text-white font-medium">
                               {formatNumber(row.total_tokens)}
                             </td>
-                            <td className="px-5 md:px-6 py-2.5 text-right text-[#6b7a9a]">
+                            <td className="px-5 md:px-6 py-2.5 text-right text-gray-500 dark:text-[#6b7a9a]">
                               {formatNumber(row.request_count)}
                             </td>
                           </tr>

@@ -8,7 +8,7 @@ export function useTheme() {
     if (savedTheme && ['light', 'dark', 'system'].includes(savedTheme)) {
       return savedTheme;
     }
-    return 'system';
+    return 'light';
   });
 
   const getEffectiveTheme = useCallback((): 'light' | 'dark' => {

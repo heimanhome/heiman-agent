@@ -14,14 +14,32 @@ import { Devices } from './pages/Devices';
 import { Persons } from './pages/Persons';
 import { Tasks } from './pages/Tasks';
 import { Observability } from './pages/Observability';
+import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
 import { AuthGuard } from './components/AuthGuard';
 import { ToastHost } from './components/Toast';
 import { useTheme } from './hooks/useTheme';
+import { useSSE } from './hooks/useSSE';
+import { useAppStore } from './store';
+import { authManager } from './api/auth-manager';
 
 function AppLayout() {
+  const updateSensor = useAppStore((state) => state.updateSensor);
+  const fetchEvents = useAppStore((state) => state.fetchEvents);
+
+  useSSE({
+    enabled: authManager.isAuthenticated(),
+    onDeviceUpdate: (deviceId, properties) => {
+      updateSensor(deviceId, properties);
+    },
+    onDeviceEvent: (deviceId, eventType, payload) => {
+      console.log('[SSE] Device event received:', deviceId, eventType, payload);
+      fetchEvents(true);
+    },
+  });
+
   return (
-    <div className="h-screen flex overflow-hidden bg-[#060d17]">
+    <div className="h-screen flex overflow-hidden bg-gray-50 dark:bg-[#0f172a]">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <TopBar />
@@ -45,9 +63,10 @@ function App() {
       <Routes>
         {/* 兼容旧路径 /auth/login，重定向到 /login */}
         <Route path="/auth/login" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route element={<AuthGuard><AppLayout /></AuthGuard>}>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/homes" element={<Homes />} />
           <Route path="/sensors" element={<Sensors />} />
           <Route path="/sensors/:did" element={<SensorDetail />} />

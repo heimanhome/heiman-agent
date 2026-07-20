@@ -120,7 +120,7 @@ class ServerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="server_")
 
 
-class OmniProfile(BaseSettings):
+class HeimanProfile(BaseSettings):
     label: str = "default"
     model: str = "gpt-4o"
     base_url: str = "https://api.openai.com/v1"
@@ -128,8 +128,8 @@ class OmniProfile(BaseSettings):
 
 
 class ModelSettings(BaseSettings):
-    omni: OmniProfile = OmniProfile()
-    omni_profiles: list[OmniProfile] = []
+    heiman: HeimanProfile = HeimanProfile()
+    heiman_profiles: list[HeimanProfile] = []
 
     model_config = SettingsConfigDict(env_prefix="model_")
 
@@ -154,6 +154,22 @@ class Settings(BaseSettings):
 _settings: Optional[Settings] = None
 
 
+def _load_config_from_db() -> dict | None:
+    try:
+        import json
+        from heiman.database.kv_repo import get_kv_repo
+        
+        kv_repo = get_kv_repo()
+        config_json = kv_repo.get("heiman_model_config")
+        if config_json:
+            config_dict = json.loads(config_json)
+            logger.info("[CONFIG] Loaded model config from database: %s", config_dict)
+            return config_dict
+    except Exception as e:
+        logger.error("[CONFIG] Failed to load config from database: %s", e)
+    return None
+
+
 def get_settings() -> Settings:
     global _settings
     if _settings is None:
@@ -163,6 +179,41 @@ def get_settings() -> Settings:
         except Exception:
             pass
         _settings = Settings()
+        
+        saved_config = _load_config_from_db()
+        if saved_config:
+            for key, value in saved_config.items():
+                if hasattr(_settings, key):
+                    obj = getattr(_settings, key)
+                    if isinstance(value, dict):
+                        if key == "model":
+                            for sub_key, sub_val in value.items():
+                                if sub_key == "heiman" and isinstance(sub_val, dict):
+                                    heiman_obj = getattr(obj, "heiman", None)
+                                    if heiman_obj and hasattr(heiman_obj, '__dict__'):
+                                        for h_key, h_val in sub_val.items():
+                                            if hasattr(heiman_obj, h_key):
+                                                setattr(heiman_obj, h_key, h_val)
+                                                logger.info("[CONFIG] Restored model.heiman.%s from database", h_key)
+                                elif sub_key == "heiman_profiles" and isinstance(sub_val, list):
+                                    profile_list = []
+                                    for profile_data in sub_val:
+                                        if isinstance(profile_data, dict):
+                                            profile = HeimanProfile(**profile_data)
+                                            profile_list.append(profile)
+                                    setattr(obj, "heiman_profiles", profile_list)
+                                    logger.info("[CONFIG] Restored model.heiman_profiles from database (%d profiles)", len(profile_list))
+                                elif hasattr(obj, sub_key):
+                                    setattr(obj, sub_key, sub_val)
+                                    logger.info("[CONFIG] Restored model.%s from database", sub_key)
+                        elif hasattr(obj, '__dict__'):
+                            for sub_key, sub_val in value.items():
+                                if hasattr(obj, sub_key):
+                                    setattr(obj, sub_key, sub_val)
+                                    logger.info("[CONFIG] Restored %s.%s from database", key, sub_key)
+                    else:
+                        setattr(_settings, key, value)
+                        logger.info("[CONFIG] Restored %s from database", key)
     return _settings
 
 
@@ -179,20 +230,68 @@ def reload_settings() -> Settings:
     return _settings
 
 
+def _persist_config_to_db(config_dict: dict) -> None:
+    try:
+        import json
+        from heiman.database.kv_repo import get_kv_repo
+        
+        kv_repo = get_kv_repo()
+        config_json = json.dumps(config_dict)
+        kv_repo.set("heiman_model_config", config_json)
+        logger.info("[CONFIG] Model config persisted to database")
+    except Exception as e:
+        logger.error("[CONFIG] Failed to persist config: %s", e)
+
+
 def update_shared_config(**kwargs) -> None:
-    """Update shared config in-place. Supports nested dicts like model={'omni': {...}}."""
+    """Update shared config in-place. Supports nested dicts like model={'heiman': {...}}."""
     global _settings
     settings = get_settings()
+
+    persist_data = {}
 
     for key, value in kwargs.items():
         if not hasattr(settings, key):
             continue
-        if isinstance(value, dict) and hasattr(getattr(settings, key), '__dict__'):
-            obj = getattr(settings, key)
-            for sub_key, sub_val in value.items():
-                if hasattr(obj, sub_key):
-                    setattr(obj, sub_key, sub_val)
+        obj = getattr(settings, key)
+        if isinstance(value, dict):
+            persist_data[key] = {}
+            if key == "model":
+                for sub_key, sub_val in value.items():
+                    if sub_key == "heiman" and isinstance(sub_val, dict):
+                        heiman_obj = getattr(obj, "heiman", None)
+                        if heiman_obj and hasattr(heiman_obj, '__dict__'):
+                            for h_key, h_val in sub_val.items():
+                                if hasattr(heiman_obj, h_key):
+                                    setattr(heiman_obj, h_key, h_val)
+                            persist_data[key]["heiman"] = {k: v for k, v in heiman_obj.__dict__.items() if not k.startswith('_')}
+                    elif sub_key == "heiman_profiles" and isinstance(sub_val, list):
+                        profile_list = []
+                        for profile_data in sub_val:
+                            if isinstance(profile_data, dict):
+                                profile = HeimanProfile(**profile_data)
+                                profile_list.append(profile)
+                            elif hasattr(profile_data, '__dict__'):
+                                profile_list.append(profile_data)
+                        setattr(obj, "heiman_profiles", profile_list)
+                        persist_data[key]["heiman_profiles"] = [
+                            {k: v for k, v in p.__dict__.items() if not k.startswith('_')}
+                            for p in profile_list
+                        ]
+                    elif hasattr(obj, sub_key):
+                        setattr(obj, sub_key, sub_val)
+                        persist_data[key][sub_key] = sub_val
+            elif hasattr(obj, '__dict__'):
+                for sub_key, sub_val in value.items():
+                    if hasattr(obj, sub_key):
+                        setattr(obj, sub_key, sub_val)
+                        persist_data[key][sub_key] = sub_val
         else:
             setattr(settings, key, value)
+            persist_data[key] = value
 
     logger.info("Updated shared config: %s", list(kwargs.keys()))
+    logger.debug("[CONFIG] Persisting config: %s", persist_data)
+    
+    if persist_data:
+        _persist_config_to_db(persist_data)

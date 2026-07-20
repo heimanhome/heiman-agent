@@ -82,6 +82,13 @@ export interface EventRecord {
   status: 'active' | 'completed';
 }
 
+export interface SensorProperty {
+  property_id: string;
+  property_name: string;
+  value: string;
+  value_type: string;
+}
+
 export interface SensorData {
   did: string;
   name: string;
@@ -96,6 +103,8 @@ export interface SensorData {
   icon?: string;
   battery?: number | null;
   rssi?: number | null;
+  signalLevel?: number | null;
+  contactState?: number | null;
   tamperState?: number | null;
   sensorLifeStatus?: number | null;
   alarmState?: number | null;
@@ -109,6 +118,7 @@ export interface SensorData {
   co2?: number | null;
   pm25?: number | null;
   hcho?: number | null;
+  properties?: SensorProperty[];
 }
 
 export interface SensorEvent {
@@ -158,4 +168,9 @@ export interface Rule {
 export interface SensorHistoryData {
   timestamp: string;
   value: number;
+  unit?: string;
+  sensor_type?: string;
+  property_name?: string;
+  attribute?: string;
+  value_label?: string;
 }
