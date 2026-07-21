@@ -15,6 +15,30 @@ env:
   WEB_DIR: "web"
 
 jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install detect-secrets safety
+
+      - name: Run detect-secrets
+        run: detect-secrets scan --baseline .secrets.baseline
+
+      - name: Run safety scan
+        working-directory: ${{ env.BACKEND_DIR }}
+        run: safety check --full-report
+
   lint-python:
     name: Python Lint & Type Check
     runs-on: ubuntu-latest
@@ -248,7 +272,7 @@ jobs:
   summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [ build-python, build-frontend ]
+    needs: [ security-scan, build-python, build-frontend ]
     if: always()
     steps:
       - name: Checkout code
@@ -257,6 +281,9 @@ jobs:
       - name: Summary
         run: |
           echo "## Pipeline Summary"
+          echo ""
+          echo "### Security Status"
+          echo "- Security Scan: ${{ needs.security-scan.result }}"
           echo ""
           echo "### Build Status"
           echo "- Python Lint: ${{ needs.lint-python.result }}"

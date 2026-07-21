@@ -1,0 +1,66 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-xml
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)(
+            ^\.secrets\.baseline$|
+            ^LICENSE$|
+            ^README\.md$|
+            ^INSTALLATION\.md$|
+            ^backend/heiman/.env\.example$|
+            ^web/.env\.example$|
+            ^dev_product\.sql$
+          )
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: ['--max-line-length=120', '--ignore=E501,W503']
+        exclude: |
+          (?x)(
+            ^\.venv/$|
+            ^venv/$|
+            ^backend/heiman/venv*/$|
+            ^backend/heiman/fresh_venv/$|
+            ^__pycache__/$|
+            ^.*\.pyc$
+          )
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.1
+    hooks:
+      - id: mypy
+        args: ['--ignore-missing-imports']
+        exclude: |
+          (?x)(
+            ^\.venv/$|
+            ^venv/$|
+            ^backend/heiman/venv*/$|
+            ^backend/heiman/fresh_venv/$|
+            ^__pycache__/$
+          )
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.9.0
+    hooks:
+      - id: eslint
+        files: web/.*\.tsx?$
+        additional_dependencies:
+          - eslint
+          - @typescript-eslint/eslint-plugin
+          - @typescript-eslint/parser

@@ -43,3 +43,15 @@ data/
 *.tar.gz
 *.zip
 *.rar
+
+dev_product.sql
+
+scripts/local/
+*.md.bak
+
+.private/
+.secrets/
+.vault/
+
+plugins/*/node_modules/
+plugins/*/dist/

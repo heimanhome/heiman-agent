@@ -88,7 +88,7 @@ pnpm build
 | `HEIMAN_CONFIG_DIR` | `~/.heiman/config` | 配置目录 |
 | `SERVER_HOST` | `127.0.0.1` | 监听地址 |
 | `SERVER_PORT` | `1912` | 监听端口 |
-| `SERVER_TOKEN` | `heiman_test_token_123` | API 鉴权 token |
+| `SERVER_TOKEN` | `your_server_token_here` | API 鉴权 token（启动时自动生成） |
 | `HEIMAN_API_URL` | `https://spapi.heiman.cn` | 海曼 API 地址 |
 | `HEIMAN_EMAIL` | - | 海曼账号 |
 | `HEIMAN_PASSWORD` | - | 海曼密码 |

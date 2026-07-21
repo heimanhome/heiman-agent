@@ -9,7 +9,7 @@ import {
 import { deviceApi, roomApi, type DeviceData, type RoomData } from '../api/client';
 import { useAppStore } from '../store';
 
-const DEFAULT_DEVICE_ICON = 'https://spapi.heiman.cn/api-saas/file/bd5cac3abfc5f6e4013a7363871d3d93.jpg?accessKey=595f278034cffdf8323097b1e04769b1';
+const DEFAULT_DEVICE_ICON = import.meta.env.VITE_DEFAULT_DEVICE_ICON_URL || 'https://spapi.heiman.cn/api-saas/file/bd5cac3abfc5f6e4013a7363871d3d93.jpg';
 
 interface RoomGroup {
   roomId: string;
