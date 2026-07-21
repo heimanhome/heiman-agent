@@ -16,8 +16,8 @@ dependencies = [
   "pydantic-settings>=2.14.2",
   "python-dotenv>=1.2.2",
   "uvicorn[standard]>=0.49.0",
-  "heimanhome-mcp>=0.1.0",
-  "heimanhome-mqtt>=1.0.1",
+  "heimanhome-mcp>=0.1.2",
+  "heimanhome-mqtt>=1.0.2",
 ]
 
 [project.scripts]
