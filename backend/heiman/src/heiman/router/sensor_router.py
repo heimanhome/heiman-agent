@@ -1,9 +1,7 @@
-from datetime import datetime
 from typing import Annotated
 import logging
 
 from fastapi import APIRouter, Depends, Query, Header
-from pydantic import BaseModel
 
 from heiman.classifier.event_classifier import EventClassifier
 from heiman.collector.sensor_collector import SensorCollector
@@ -15,7 +13,7 @@ from heiman.dependencies import (
     get_event_repo,
     get_sensor_log_repo,
 )
-from heiman.schema.sensor import SensorData, SensorEvent, SensorStatus, SensorType
+from heiman.schema.sensor import SensorData, SensorStatus, SensorType
 
 router = APIRouter(prefix="/sensors", tags=["sensors"])
 logger = logging.getLogger(__name__)
@@ -52,7 +50,9 @@ async def get_sensors(
             logger.debug("Filtered by status=%s: %d sensors", status, len(sensor_data_list))
 
         for sensor_data in sensor_data_list:
-            mgr.sensor_log_repo.insert(sensor_data)
+            timestamp_str = sensor_data.timestamp.isoformat()
+            if not mgr.sensor_log_repo.check_exists(sensor_data.did, timestamp_str):
+                mgr.sensor_log_repo.insert(sensor_data)
 
         logger.info("get_sensors success: returning %d sensors", len(sensor_data_list))
         return {"success": True, "data": sensor_data_list}
@@ -74,7 +74,6 @@ async def get_sensor(
         sensors = await mgr.api_client.get_sensor_data(home_id)
         sensor = next((s for s in sensors if s.did == did), None)
         if sensor:
-            mgr.sensor_log_repo.insert(sensor)
             return {"success": True, "data": sensor}
 
         device_data = collector.collect(did, drain=False)
@@ -91,12 +90,9 @@ async def get_sensor(
 async def push_sensor_data(
     sensor_data: SensorData,
     event_classifier: EventClassifier = Depends(get_event_classifier),
-    sensor_log_repo: SensorLogRepo = Depends(get_sensor_log_repo),
     event_repo: EventRepo = Depends(get_event_repo),
 ):
     try:
-        sensor_log_repo.insert(sensor_data)
-
         events = event_classifier.classify(sensor_data)
         for event in events:
             event_repo.insert(event)

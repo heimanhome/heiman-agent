@@ -1,26 +1,81 @@
 import logging
 import os
+import threading
 from typing import Optional, Dict, List, Any
 from enum import Enum
 
 logger = logging.getLogger(__name__)
 
-def _record_token_usage(model: str, usage: dict, usage_type: str = "api") -> None:
+def _estimate_tokens(text: str) -> int:
+    """粗略估算文本的 token 数：英文 ~4 字符/token，中文 ~1.5 字符/token"""
+    if not text:
+        return 0
+    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    other_chars = len(text) - chinese_chars
+    return int(chinese_chars / 1.5 + other_chars / 4)
+
+
+def _record_token_usage(model: str, usage: dict, usage_type: str = "api",
+                         prompt_text: str = "", response_text: str = "") -> None:
     try:
         from heiman.database.token_usage_repo import get_token_usage_repo
         repo = get_token_usage_repo()
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
-        if prompt_tokens > 0 or completion_tokens > 0:
-            repo.record_usage(
-                model=model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                usage_type=usage_type,
-            )
-            logger.debug(f"[TOKEN] Recorded usage: model={model}, prompt={prompt_tokens}, completion={completion_tokens}")
+        total_tokens_from_usage = usage.get("total_tokens", 0)
+
+        # 兜底：如果 API 没返回 token 数（Ollama 常见），用文本长度估算
+        if prompt_tokens <= 0 and prompt_text:
+            prompt_tokens = _estimate_tokens(prompt_text)
+            logger.debug(f"[TOKEN] Estimated prompt tokens: {prompt_tokens}")
+        if completion_tokens <= 0 and response_text:
+            completion_tokens = _estimate_tokens(response_text)
+            logger.debug(f"[TOKEN] Estimated completion tokens: {completion_tokens}")
+
+        # 始终记录（即使为 0 也记录一次请求，便于统计请求次数）
+        repo.record_usage(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            usage_type=usage_type,
+        )
+        logger.debug(
+            "[TOKEN] Recorded usage: model=%s, prompt=%d, completion=%d, total=%d",
+            model, prompt_tokens, completion_tokens,
+            total_tokens_from_usage or prompt_tokens + completion_tokens,
+        )
     except Exception as e:
         logger.warning(f"[TOKEN] Failed to record token usage: {e}")
+
+
+def _check_token_quota(model: str = "", usage_type: str = "api", estimated_tokens: int = 1000) -> bool:
+    try:
+        from heiman.database.token_usage_repo import get_token_usage_repo
+        repo = get_token_usage_repo()
+        quota_status = repo.check_quota(model, usage_type, estimated_tokens)
+
+        if quota_status["will_exceed"]:
+            logger.warning(
+                "[TOKEN] Quota exceeded: model=%s, usage=%d/%d",
+                model,
+                quota_status["daily_usage"],
+                quota_status["daily_limit"],
+            )
+            return False
+
+        if quota_status["at_warning"]:
+            logger.warning(
+                "[TOKEN] Quota warning: model=%s, usage=%d/%d (%.1f%%)",
+                model,
+                quota_status["daily_usage"],
+                quota_status["daily_limit"],
+                (quota_status["daily_usage"] / quota_status["daily_limit"]) * 100,
+            )
+
+        return True
+    except Exception as e:
+        logger.warning(f"[TOKEN] Failed to check quota: {e}")
+        return True
 
 
 class LlmProvider(Enum):
@@ -30,6 +85,9 @@ class LlmProvider(Enum):
 
 
 class LlmClient:
+    # 类级锁，确保多个 LlmClient 实例不会同时向 Ollama 发请求
+    _ollama_lock: threading.Lock = threading.Lock()
+
     def __init__(self, provider: str = "ollama", api_key: Optional[str] = None, base_url: Optional[str] = None):
         self.provider = LlmProvider(provider.lower())
         self.api_key = api_key or os.environ.get("LLM_API_KEY")
@@ -72,6 +130,10 @@ class LlmClient:
         if not client:
             return self._fallback_generate(prompt, context)
 
+        if not _check_token_quota(model):
+            logger.warning("[LLM] Token quota exceeded, using fallback")
+            return self._fallback_generate(prompt, context)
+
         try:
             system_prompt = """你是一个智能家居AI助手，帮助用户分析家庭传感器数据并提供智能建议。
             请用简洁、友好的语言回答，提供具体的行动建议。
@@ -86,21 +148,37 @@ class LlmClient:
                 context_str = "\n".join(f"- {k}: {v}" for k, v in context.items())
                 messages.insert(-1, {"role": "system", "content": f"上下文数据:\n{context_str}"})
 
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=500,
-            )
+            # 类级锁确保 Ollama 同一时间只有一个请求
+            with LlmClient._ollama_lock:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=500,
+                )
 
-            if hasattr(response, 'usage'):
+            response_text = response.choices[0].message.content.strip()
+
+            # 获取 usage 信息，Ollama 的 OpenAI 兼容端点可能不返回完整 usage
+            usage = {}
+            if hasattr(response, 'usage') and response.usage:
                 usage = {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
+                    "prompt_tokens": getattr(response.usage, 'prompt_tokens', 0) or 0,
+                    "completion_tokens": getattr(response.usage, 'completion_tokens', 0) or 0,
+                    "total_tokens": getattr(response.usage, 'total_tokens', 0) or 0,
                 }
-                _record_token_usage(model, usage)
+                logger.debug(
+                    "[LLM] API usage response: model=%s, prompt=%s, completion=%s, total=%s",
+                    model,
+                    usage.get("prompt_tokens"),
+                    usage.get("completion_tokens"),
+                    usage.get("total_tokens"),
+                )
 
-            return response.choices[0].message.content.strip()
+            # 始终记录 token（即使 usage 为空也会用文本长度估算）
+            _record_token_usage(model, usage, prompt_text=prompt, response_text=response_text)
+
+            return response_text
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
             return self._fallback_generate(prompt, context)
@@ -131,7 +209,7 @@ class LlmClient:
             logger.error(f"LLM summarization failed: {e}")
             return self._fallback_summarize(events)
 
-    def classify(self, data: Dict, categories: List[str]) -> str:
+    def classify(self, data: Dict, categories: List[str], model: str = "qwen2:7b") -> str:
         client = self._get_client()
         if not client:
             return self._fallback_classify(data, categories)
@@ -149,13 +227,13 @@ class LlmClient:
 
 请只返回一个最合适的类别名称。"""
 
-            response = self.generate(prompt)
+            response = self.generate(prompt, model=model)
             return response.strip()
         except Exception as e:
             logger.error(f"LLM classification failed: {e}")
             return self._fallback_classify(data, categories)
 
-    def suggest_action(self, context: Dict) -> str:
+    def suggest_action(self, context: Dict, model: str = "qwen2:7b") -> str:
         client = self._get_client()
         if not client:
             return self._fallback_suggest_action(context)
@@ -173,7 +251,7 @@ class LlmClient:
 2. 建议采取的行动
 3. 预期效果"""
 
-            return self.generate(prompt)
+            return self.generate(prompt, model=model)
         except Exception as e:
             logger.error(f"LLM suggestion failed: {e}")
             return self._fallback_suggest_action(context)

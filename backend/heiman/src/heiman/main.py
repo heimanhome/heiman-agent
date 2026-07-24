@@ -32,6 +32,9 @@ from heiman.router.product_router import router as product_router
 from heiman.router.ai_router import router as ai_router
 from heiman.admin.router import router as admin_router
 from heiman.home_profile.router import router as home_profile_router
+from heiman.service.panel_fs_service import PanelFsService
+
+panel_fs_service = PanelFsService()
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,6 @@ async def _periodic_refresh(interval: int):
                 sensor_data_list = await mgr.api_client.get_sensor_data()
 
                 for sensor_data in sensor_data_list:
-                    mgr.sensor_log_repo.insert(sensor_data)
                     await mgr.rule_engine.run_rules(sensor_data)
 
                 cycle_ms = (time.time() - cycle_start) * 1000
@@ -141,6 +143,14 @@ async def lifespan(app: FastAPI):
         logger.error("Manager initialization failed: %s", e)
         raise
 
+    try:
+        from heiman.ai.self_learning_system import get_self_learning_monitor
+        learning_monitor = get_self_learning_monitor()
+        learning_monitor.start()
+        logger.info("Self-learning monitor started")
+    except Exception as e:
+        logger.error("Failed to start self-learning monitor: %s", e)
+
     watchdog = WatchdogTask(mon)
     watchdog.start()
 
@@ -159,14 +169,58 @@ async def lifespan(app: FastAPI):
     _BG_TASKS.add(_cleanup_task)
     _cleanup_task.add_done_callback(_BG_TASKS.discard)
 
+    # 启动 OAuth token 自动刷新后台任务,独立于业务调用
+    try:
+        mgr = get_manager()
+        _token_refresh_task = asyncio.create_task(mgr.api_client.start_token_refresh_loop(check_interval=60, refresh_buffer=300))
+        _BG_TASKS.add(_token_refresh_task)
+        _token_refresh_task.add_done_callback(_BG_TASKS.discard)
+        logger.info("OAuth token auto-refresh background task started")
+    except Exception as e:
+        logger.warning("Failed to start token auto-refresh task: %s", e)
+
+    try:
+        from heiman.service.scheduled_ai_task import get_scheduled_ai_task
+        ai_task = get_scheduled_ai_task()
+        ai_task.start(interval=1800)
+        logger.info("Scheduled AI analysis task started")
+    except Exception as e:
+        logger.warning("Failed to start scheduled AI task: %s", e)
+
+    try:
+        from heiman.service.model_hot_reload import get_model_hot_reload_service
+        hot_reload = get_model_hot_reload_service()
+        hot_reload.start(interval=30)
+        logger.info("Model hot reload service started")
+    except Exception as e:
+        logger.warning("Failed to start model hot reload service: %s", e)
+
     logger.info("Heiman Agent started successfully")
 
     yield
 
     watchdog.enter_shutdown()
 
+    try:
+        from heiman.service.scheduled_ai_task import get_scheduled_ai_task
+        ai_task = get_scheduled_ai_task()
+        ai_task.stop()
+    except Exception:
+        pass
+
+    try:
+        from heiman.service.model_hot_reload import get_model_hot_reload_service
+        hot_reload = get_model_hot_reload_service()
+        hot_reload.stop()
+    except Exception:
+        pass
+
     _refresh_task.cancel()
     _cleanup_task.cancel()
+    # 取消所有后台任务(包括 token 自动刷新任务等)
+    for task in list(_BG_TASKS):
+        if not task.done():
+            task.cancel()
     try:
         await _refresh_task
     except asyncio.CancelledError:
@@ -175,6 +229,12 @@ async def lifespan(app: FastAPI):
         await _cleanup_task
     except asyncio.CancelledError:
         pass
+    # 等待其余后台任务完成取消
+    for task in list(_BG_TASKS):
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
     watchdog.stop()
     resource_mon.stop()
@@ -255,6 +315,43 @@ def create_app() -> FastAPI:
     app.include_router(product_router, prefix="/api")
     app.include_router(ai_router, prefix="/api")
 
+    @app.post("/__panel_fs__/open")
+    async def panel_fs_open(request: Request):
+        try:
+            data = await request.json()
+            panel_url = data.get("panelUrl")
+            sync_data = data.get("syncData", {})
+
+            result = await panel_fs_service.open_session(panel_url, sync_data)
+            return {"success": True, "data": result}
+        except Exception as e:
+            logger.error("[PanelFS] Open session failed: %s", e)
+            return {"success": False, "message": str(e)}
+
+    @app.post("/__panel_fs__/close")
+    async def panel_fs_close(request: Request):
+        try:
+            data = await request.json()
+            session_id = data.get("sessionId")
+            success = await panel_fs_service.close_session(session_id)
+            return {"success": success}
+        except Exception as e:
+            logger.error("[PanelFS] Close session failed: %s", e)
+            return {"success": False, "message": str(e)}
+
+    @app.get("/__panel_fs__/{session_id}/{file_path:path}")
+    async def panel_fs_file(session_id: str, file_path: str):
+        try:
+            file_content = panel_fs_service.get_file(session_id, file_path)
+            if file_content is None:
+                return JSONResponse({"success": False, "message": "File not found"}, status_code=404)
+
+            mime_type = panel_fs_service.get_mime_type(file_path)
+            return Response(content=file_content, media_type=mime_type)
+        except Exception as e:
+            logger.error("[PanelFS] Get file failed: %s", e)
+            return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
     @app.get("/health")
     async def health_check():
         try:
@@ -297,17 +394,7 @@ def create_app() -> FastAPI:
         if not index_file.exists():
             return Response(status_code=404, content="404 Not Found")
 
-        token = settings.server.token
-        if not token:
-            return HTMLResponse(
-                content="<h1>503: server.token 未配置,无法启动 web 页</h1>",
-                status_code=503,
-            )
-
         template = index_file.read_text(encoding="utf-8")
-        template = template.replace(
-            "__HEIMAN_INJECT_TOKEN_HERE__", token
-        )
         return HTMLResponse(template, headers={"Cache-Control": "no-store"})
 
     return app

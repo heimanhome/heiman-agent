@@ -145,6 +145,9 @@ async def heiman_redirect(code: str, state: str):
             from heiman.manager import get_manager
             mgr = get_manager()
 
+            # 用户重新登录,重置 token 刷新状态(清除之前的失败计数和冷却时间)
+            mgr.api_client.reset_refresh_state()
+
             login_success = await mgr.api_client.login_with_oauth_token(access_token, user_id)
 
             if login_success:
@@ -158,78 +161,22 @@ async def heiman_redirect(code: str, state: str):
                 try:
                     from heiman.mqtt_service import get_mqtt_service
                     mqtt_service = get_mqtt_service()
-                    mqtt_connected = await mqtt_service.connect(access_token, user_id)
+                    logger.info("[AUTH] Attempting MQTT connection with access_token=%s, user_id=%s", 
+                                access_token[:20] if access_token else "None", user_id)
+                    mqtt_connected = await mqtt_service.connect(access_token, user_id, force=True)
                     if mqtt_connected:
                         logger.info("[AUTH] MQTT service connected successfully with SSL/TLS")
                     else:
                         logger.warning("[AUTH] MQTT service connection failed, continuing without MQTT")
                 except Exception as e:
-                    logger.error("[AUTH] Failed to initialize MQTT service: %s", e)
+                    logger.error("[AUTH] Failed to initialize MQTT service: %s", e, exc_info=True)
             else:
                 logger.warning("[AUTH] API client login failed, continuing without full initialization")
 
         except Exception as e:
             logger.warning("[AUTH] Service initialization partially failed: %s, continuing with limited functionality", e)
 
-        expires_in = token_data.get("expires_in", 3600)
-
-        html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>登录成功</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }}
-        .container {{
-            text-align: center;
-            color: white;
-        }}
-        .spinner {{
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(255,255,255,0.3);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }}
-        @keyframes spin {{
-            to {{ transform: rotate(360deg); }}
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>登录成功</h1>
-        <div class="spinner"></div>
-        <p>正在跳转到首页...</p>
-    </div>
-    <script>
-        const accessToken = "{access_token}";
-        const refreshToken = "{refresh_token}";
-        const expiresIn = {expires_in};
-
-        const now = new Date();
-        const expireDate = new Date(now.getTime() + expiresIn * 1000);
-
-        localStorage.setItem('heiman_access_token', accessToken);
-        localStorage.setItem('heiman_refresh_token', refreshToken || '');
-        localStorage.setItem('heiman_token_expires', expireDate.toISOString());
-
-        window.location.href = '/';
-    </script>
-</body>
-</html>"""
-
-        return HTMLResponse(content=html_content, status_code=200)
+        return RedirectResponse(url="/dashboard", status_code=302)
 
     except HTTPException:
         raise
@@ -242,7 +189,13 @@ async def heiman_redirect(code: str, state: str):
 async def get_token():
     token_info = get_current_token()
     if not token_info:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        return {
+            "success": True,
+            "data": {
+                "authenticated": False,
+                "user_id": "",
+            },
+        }
 
     access_token = token_info.get("access_token")
     user_id = token_info.get("user_id", "")
@@ -267,8 +220,7 @@ async def get_token():
     return {
         "success": True,
         "data": {
-            "access_token": access_token,
-            "token_type": "bearer",
+            "authenticated": True,
             "user_id": user_id,
         },
     }
@@ -308,28 +260,41 @@ async def refresh_token(body: dict | None = None):
             status = token_data.get("status")
             result = token_data.get("result")
             message = token_data.get("message", "")
-            
-            if status == 200 and not result and not message:
-                logger.error("[AUTH] Token refresh returned empty result - refresh_token may be expired")
-                set_current_token(None)
-                raise HTTPException(status_code=401, detail="Refresh token expired, please re-authenticate")
 
+            # 兼容两种响应格式:
+            # 1. 扁平结构(OAuth2 标准): {"access_token":"xxx","refresh_token":"xxx","expires_in":3600}
+            # 2. 嵌套结构(Heiman 业务包装): {"status":200,"result":{"access_token":"xxx",...}}
             access_token = token_data.get("access_token")
             refresh_token_new = token_data.get("refresh_token")
+            expires_in = token_data.get("expires_in", 3600)
+
+            if not access_token and isinstance(result, dict):
+                logger.info("[AUTH] Trying nested result field for token data")
+                access_token = result.get("access_token")
+                refresh_token_new = result.get("refresh_token") or refresh_token_new
+                expires_in = result.get("expires_in", expires_in)
 
             if not access_token:
-                logger.error("[AUTH] No access token in refresh response: status=%s, message=%s", status, message)
-                set_current_token(None)
-                raise HTTPException(status_code=401, detail="Refresh token invalid, please re-authenticate")
+                logger.error(
+                    "[AUTH] No access token in refresh response: status=%s, message=%s, "
+                    "result=%s, keys=%s. Keeping existing token.",
+                    status, message,
+                    str(result)[:200] if result else None,
+                    list(token_data.keys()),
+                )
+                # 不清除已有 token,让用户仍可使用旧 token(若未过期)
+                raise HTTPException(
+                    status_code=401,
+                    detail="Refresh token invalid, please re-authenticate"
+                )
         else:
             logger.error("[AUTH] Token refresh returned unexpected response type: %s", type(token_data).__name__)
-            set_current_token(None)
             raise HTTPException(status_code=500, detail="Token refresh failed")
 
         set_current_token({
             "access_token": access_token,
             "refresh_token": refresh_token_new or refresh_token_to_use,
-            "expires_at": datetime.now().timestamp() + (token_data.get("expires_in", 3600)),
+            "expires_at": datetime.now().timestamp() + expires_in,
             "user_id": stored_token.get("user_id", "") if stored_token else "",
         })
 
@@ -363,8 +328,8 @@ async def refresh_token(body: dict | None = None):
                 "access_token": access_token,
                 "refresh_token": refresh_token_new,
                 "token_type": "bearer",
-                "expires_in": token_data.get("expires_in", 3600),
-                "expires_at": datetime.now().timestamp() + (token_data.get("expires_in", 3600)),
+                "expires_in": expires_in,
+                "expires_at": datetime.now().timestamp() + expires_in,
             }
         }
 
@@ -382,8 +347,10 @@ async def get_me():
         mgr = get_manager()
 
         user_info = await mgr.api_client.get_user_info()
+        token_info = get_current_token()
 
         if user_info:
+            access_token = token_info.get("access_token", "") if token_info else ""
             logger.info("[AUTH] Get me success for user: %s", user_info.get("nickName", user_info.get("userName", "")))
             return {
                 "success": True,
@@ -395,6 +362,7 @@ async def get_me():
                     "phone": user_info.get("phone") or "",
                     "avatar": user_info.get("headImgUrl") or "",
                     "bindStatus": True,
+                    "accessToken": access_token,
                 },
             }
         else:
@@ -416,8 +384,10 @@ async def get_profile():
         mgr = get_manager()
 
         user_info = await mgr.api_client.get_user_info()
+        token_info = get_current_token()
 
         if user_info:
+            access_token = token_info.get("access_token", "") if token_info else ""
             logger.info("[AUTH] Get profile success for user: %s", user_info.get("nickName", user_info.get("userName", "")))
             return {
                 "success": True,
@@ -429,6 +399,7 @@ async def get_profile():
                     "phone": user_info.get("phone") or "",
                     "avatar": user_info.get("headImgUrl") or "",
                     "bindStatus": True,
+                    "accessToken": access_token,
                 },
             }
         else:
@@ -568,3 +539,40 @@ async def get_last_home_selection():
     home_id = get_last_home(user_id)
 
     return {"success": True, "data": {"home_id": home_id}}
+
+
+@router.post("/logout")
+async def logout():
+    """退出登录:清除存储的 token、断开 MQTT、重置 API client。
+
+    这是唯一会删除 token 的入口,refresh 失败时不会删除 token。
+    """
+    token_info = get_current_token()
+    user_id = token_info.get("user_id", "") if token_info else ""
+
+    logger.info("[AUTH] Logout requested, user_id=%s", user_id)
+
+    # 1. 清除存储的 token(内存 + DB)
+    set_current_token(None)
+
+    # 2. 断开 MQTT 连接
+    try:
+        from heiman.mqtt_service import get_mqtt_service
+        mqtt_service = get_mqtt_service()
+        if mqtt_service.is_connected:
+            await mqtt_service.disconnect()
+            logger.info("[AUTH] MQTT disconnected on logout")
+    except Exception as e:
+        logger.warning("[AUTH] Failed to disconnect MQTT on logout: %s", e)
+
+    # 3. 重置 API client 状态
+    try:
+        from heiman.manager import get_manager
+        mgr = get_manager()
+        mgr.api_client.reset_refresh_state()
+        mgr.api_client._cleanup()
+        logger.info("[AUTH] API client cleaned up on logout")
+    except Exception as e:
+        logger.warning("[AUTH] Failed to cleanup API client on logout: %s", e)
+
+    return {"success": True, "data": {"message": "Logged out successfully"}}

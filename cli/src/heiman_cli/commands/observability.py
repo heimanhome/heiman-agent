@@ -81,25 +81,7 @@ def observability_agent_run(run_id, pretty):
     print_result(data, pretty)
 
 
-@observability_group.command("events")
-@click.option("--limit", type=int, default=20, help="返回条数")
-@click.option("--since", type=int, help="起始时间（Unix ms）")
-@click.option("--until", type=int, help="结束时间（Unix ms）")
-@click.option("--pretty", is_flag=True, help="JSON 格式化输出")
-def observability_events(limit, since, until, pretty):
-    """获取 events 列表。"""
-    params = []
-    if limit:
-        params.append(f"limit={limit}")
-    if since:
-        params.append(f"since={since}")
-    if until:
-        params.append(f"until={until}")
-    url = "/api/observability/events"
-    if params:
-        url += "?" + "&".join(params)
-    data = api_get(url)
-    print_result(data, pretty)
+
 
 
 @observability_group.command("stats")

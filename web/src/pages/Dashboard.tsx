@@ -88,7 +88,7 @@ export function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t("sensorStatus")}</h2>
             <button
-              onClick={() => navigate("/sensors")}
+              onClick={() => navigate("/devices")}
               className="text-sm text-[#00d4ff] hover:underline"
             >
               {t("viewAll")}
@@ -113,7 +113,7 @@ export function Dashboard() {
                   <SensorCard
                     key={sensor.did}
                     sensor={sensor}
-                    onClick={() => navigate(`/sensors/${sensor.did}`)}
+                    onClick={() => navigate(`/devices/${sensor.did}`)}
                   />
                 ))}
               </div>

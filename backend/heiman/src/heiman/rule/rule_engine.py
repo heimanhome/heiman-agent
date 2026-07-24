@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from heiman.database.rule_repo import RuleRepo
+from heiman.database.connector import get_db_connector
 from heiman.schema.sensor import SensorData, SensorEvent, SensorType
 from heiman.schema.rule import Rule, RuleAction, RuleActionType, RuleCondition
 
@@ -17,6 +18,29 @@ class RuleEngine:
         self._rule_repo = RuleRepo()
         self._last_triggered: dict[str, datetime] = {}
         self._action_idempotency: dict[str, datetime] = {}
+    
+    def _record_execution(self, rule: Rule, action: RuleAction, success: bool = True, error_message: str = "") -> None:
+        try:
+            db = get_db_connector()
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO rule_executions (
+                        rule_id, rule_name, action_type, executed_at, success, error_message, home_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    rule.rule_id,
+                    rule.name,
+                    action.action_type.value,
+                    datetime.now().isoformat(),
+                    1 if success else 0,
+                    error_message,
+                    rule.home_id,
+                ))
+                conn.commit()
+            logger.debug("[RuleEngine] Execution recorded: rule=%s, action=%s", rule.name, action.action_type.value)
+        except Exception as e:
+            logger.warning("[RuleEngine] Failed to record execution: %s", e)
     
     def evaluate(self, sensor_data: SensorData) -> list[RuleAction]:
         actions: list[RuleAction] = []
@@ -156,6 +180,8 @@ class RuleEngine:
                 return await self._execute_webhook_action_async(action)
             elif action.action_type == RuleActionType.MESSAGE:
                 return self._execute_message_action(action)
+            elif action.action_type == RuleActionType.DEVICE_CONTROL:
+                return await self._execute_device_control_action(action)
             else:
                 logger.warning("Unknown action type: %s", action.action_type.value)
                 return False
@@ -201,10 +227,40 @@ class RuleEngine:
         message = action.payload.get("message", "")
         logger.info("MESSAGE: %s", message)
         return True
+
+    async def _execute_device_control_action(self, action: RuleAction) -> bool:
+        try:
+            from heiman.manager import get_manager
+
+            device_id = action.payload.get("device_id")
+            command = action.payload.get("command")
+            device_name = action.payload.get("device_name", "")
+
+            if not device_id or not command:
+                logger.error("Device control action missing device_id or command")
+                return False
+
+            mgr = get_manager()
+            success = await mgr.send_device_command(device_id, command)
+
+            if success:
+                logger.info("Device control succeeded: %s -> %s (%s)", device_name or device_id, command, device_id)
+            else:
+                logger.warning("Device control failed: %s -> %s (%s)", device_name or device_id, command, device_id)
+
+            return success
+
+        except Exception as e:
+            logger.error("Device control action failed: %s", e)
+            return False
     
     async def run_rules(self, sensor_data: SensorData) -> list[RuleAction]:
         actions = self.evaluate(sensor_data)
         for action in actions:
-            await self.execute_action_async(action, sensor_data)
+            result = await self.execute_action_async(action, sensor_data)
+            for rule in self._rule_repo.get_all(enabled_only=True):
+                if action in rule.actions:
+                    self._record_execution(rule, action, result)
+                    break
         self._cleanup_idempotency_cache()
         return actions

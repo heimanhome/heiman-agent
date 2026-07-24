@@ -1,7 +1,6 @@
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosResponse } from 'axios';
 import type { SensorData, SensorEvent, Rule, SensorHistoryData, HomeEntry, HomeEntryType, HomeEntries } from '../types';
 import { authManager } from './auth-manager';
-import { statusChecker } from './status-checker';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -27,11 +26,6 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = authManager.getAccessToken();
-  if (token) {
-    config.headers.Authorization = `bearer ${token}`;
-  }
-  
   console.debug('[API] Request:', config.method?.toUpperCase(), config.url, config.params || config.data);
   return config;
 }, (error) => {
@@ -39,74 +33,22 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (token: string) => void;
-  reject: (error: unknown) => void;
-}> = [];
-
-const processQueue = (error: unknown, token: string | null = null) => {
-  failedQueue.forEach(prom => {
-    if (error) {
-      prom.reject(error);
-    } else if (token) {
-      prom.resolve(token);
-    }
-  });
-  failedQueue = [];
-};
-
 api.interceptors.response.use(
   (response: AxiosResponse<ApiResponse>) => {
     console.debug('[API] Response:', response.status, response.config.url, response.data);
     return response;
   },
-  async (error: AxiosError<ApiResponse>) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+  (error: AxiosError<ApiResponse>) => {
     const status = error.response?.status;
     
     console.error('[API] Response error:', status, error.config?.url, error.response?.data || error.message);
 
-    if (status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve: (token) => {
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `bearer ${token}`;
-            }
-            resolve(api(originalRequest));
-          }, reject });
-        });
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      try {
-        const newToken = await authManager.refreshToken();
-
-        if (newToken) {
-          processQueue(null, newToken.access_token);
-          if (originalRequest.headers) {
-            originalRequest.headers.Authorization = `bearer ${newToken.access_token}`;
-          }
-          return api(originalRequest);
-        }
-
-        // refresh 返回 null:若仍已认证说明是非 401/400 错误,不登出,仅拒绝本次请求
-        processQueue(new Error('Token refresh failed'), null);
-        if (!authManager.isAuthenticated()) {
-          authManager.logout();
-        }
-      } catch (refreshError) {
-        console.error('[API] Token refresh failed:', refreshError);
-        processQueue(refreshError, null);
-        if (!authManager.isAuthenticated()) {
-          authManager.logout();
-        }
-      } finally {
-        isRefreshing = false;
-      }
+    if (status === 401) {
+      authManager.logout();
+      return Promise.reject({
+        status: 401,
+        message: 'Not authenticated',
+      });
     }
 
     if (status === 403) {
@@ -146,72 +88,10 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
-  login: async (username: string, password: string, rememberMe: boolean) => {
-    const response = await api.post<ApiResponse<{ access_token: string; refresh_token: string; expires_in?: number; expires_at?: string }>>('/auth/login', {
-      username,
-      password,
-    });
-    const tokenData = {
-      access_token: response.data.data.access_token,
-      refresh_token: response.data.data.refresh_token,
-      expires_at: response.data.data.expires_at
-        ? new Date(typeof response.data.data.expires_at === 'number'
-            ? response.data.data.expires_at * 1000
-            : response.data.data.expires_at
-          ).toISOString()
-        : new Date(Date.now() + (response.data.data.expires_in || 7200) * 1000).toISOString(),
-      token_type: 'Bearer' as const,
-    };
-
-    authManager.setToken(tokenData);
-
-    localStorage.setItem('heiman_access_token', response.data.data.access_token);
-    localStorage.setItem('heiman_refresh_token', response.data.data.refresh_token);
-    localStorage.setItem('heiman_token_expires', tokenData.expires_at);
-
-    if (rememberMe) {
-      localStorage.setItem('heiman_remember_me', 'true');
-    } else {
-      localStorage.removeItem('heiman_remember_me');
-    }
-    return response.data;
-  },
   logout: () => {
     authManager.logout();
   },
-  getToken: () => api.get<ApiResponse<{ access_token: string }>>('/auth/token'),
-  refreshToken: async () => {
-    const currentToken = authManager.getToken();
-    const refreshToken = currentToken?.refresh_token;
-    if (!refreshToken) {
-      throw new Error('No refresh token');
-    }
-    const response = await api.post<ApiResponse<{ access_token: string; refresh_token?: string; expires_in?: number; expires_at?: number }>>('/auth/refresh', {
-      refresh_token: refreshToken,
-    });
-    
-    const tokenData = {
-      access_token: response.data.data.access_token,
-      refresh_token: response.data.data.refresh_token || refreshToken,
-      expires_at: response.data.data.expires_at 
-        ? new Date(response.data.data.expires_at * 1000).toISOString()
-        : new Date(Date.now() + (response.data.data.expires_in || 7200) * 1000).toISOString(),
-      token_type: 'Bearer' as const,
-    };
-    
-    authManager.setToken(tokenData);
-    
-    return response.data;
-  },
-  getCurrentToken: () => authManager.getAccessToken(),
-  setToken: (token: string) => {
-    localStorage.setItem('heiman_access_token', token);
-  },
-  clearToken: () => {
-    localStorage.removeItem('heiman_access_token');
-    localStorage.removeItem('heiman_token_expires');
-  },
-  bindAccount: (code: string) => api.post<ApiResponse>('/auth/bind', { code }),
+  getAuthStatus: () => api.get<ApiResponse<{ authenticated: boolean; user_id: string }>>('/auth/token'),
   getProfile: () => api.get<ApiResponse<{ username: string; nickName?: string; email: string; phone: string; bindStatus: boolean; userId?: string; avatar?: string }>>('/auth/profile'),
   saveHomeSelection: (home_id: string) => api.post<ApiResponse>('/auth/home-select', { home_id }),
   getLastHome: () => api.get<ApiResponse<{ home_id: string | null }>>('/auth/last-home'),
@@ -308,6 +188,14 @@ export interface PaginatedResponse<T> {
   message?: string;
 }
 
+export interface PaginatedData<T> {
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  items: T[];
+}
+
 export const logApi = {
   getAll: (params?: { level?: string; action?: string; user?: string; search?: string; page?: number; page_size?: number }) =>
     api.get<PaginatedResponse<LogEntry>>('/logs', { params }),
@@ -371,7 +259,19 @@ export interface DeviceData {
   photoUrl?: string;
   parentId?: string;
   productId?: string;
+  properties?: Record<string, any>;
   deriveMetadata?: any[];
+}
+
+export interface PanelData {
+  deviceId: string;
+  deviceName: string;
+  productId: string;
+  productName: string;
+  panelUrl: string;
+  entryUrl: string;
+  sessionId: string;
+  fileCount: number;
 }
 
 export const deviceApi = {
@@ -382,6 +282,10 @@ export const deviceApi = {
   update: (deviceId: string, data: Partial<DeviceData>) => api.put<ApiResponse<DeviceData>>(`/devices/${deviceId}`, data),
   delete: (deviceId: string) => api.delete<ApiResponse>(`/devices/${deviceId}`),
   toggle: (deviceId: string) => api.post<ApiResponse>(`/devices/${deviceId}/toggle`),
+  control: (deviceId: string, property_identifier: string, value: any) =>
+    api.post<ApiResponse>(`/devices/${deviceId}/control`, { property_identifier, value }),
+  getPanel: (deviceId: string, home_id?: string) => api.get<ApiResponse<PanelData>>(`/devices/${deviceId}/panel`, { params: { home_id } }),
+  closePanelSession: (sessionId: string) => api.post<ApiResponse>('/devices/panel/session/close', { sessionId }),
 };
 
 export interface Person {
@@ -588,15 +492,6 @@ export interface AgentRun {
   error_msg: string | null;
 }
 
-export interface ObsEvent {
-  event_id: string;
-  timestamp: number;
-  event_type: string;
-  trace_id: string | null;
-  source: string | null;
-  payload: any;
-}
-
 export const observabilityApi = {
   getOverview: () => api.get<ApiResponse<ObservabilityOverview>>('/observability/overview'),
   getSystem: () => api.get<ApiResponse<ObservabilityOverview['system']>>('/observability/system'),
@@ -615,16 +510,13 @@ export const observabilityApi = {
   // Performance Metrics
   getPerformance: () => api.get<ApiResponse<any>>('/observability/performance'),
   // Traces APIs
-  getTraces: (params?: { limit?: number; since?: number; until?: number }) =>
-    api.get<ApiResponse<TraceRecord[]>>('/observability/traces', { params }),
+  getTraces: (params?: { page?: number; page_size?: number; since?: number; until?: number }) =>
+    api.get<ApiResponse<PaginatedData<TraceRecord>>>('/observability/traces', { params }),
   getTrace: (traceId: string) => api.get<ApiResponse<{ cycle: TraceRecord; devices: TraceDevice[] }>>(`/observability/traces/${traceId}`),
   // Agent Runs APIs
   getAgentRuns: (params?: { limit?: number; since?: number; until?: number }) =>
     api.get<ApiResponse<AgentRun[]>>('/observability/agent-runs', { params }),
   getAgentRun: (runId: string) => api.get<ApiResponse<AgentRun>>(`/observability/agent-runs/${runId}`),
-  // Events APIs
-  getEvents: (params?: { limit?: number; since?: number; until?: number }) =>
-    api.get<ApiResponse<ObsEvent[]>>('/observability/events', { params }),
   // Stats APIs
   getStats: (name: string, params?: { bucket?: string; since?: number; until?: number }) =>
     api.get<ApiResponse<{ data: any[]; total: number }>>(`/observability/stats/${name}`, { params }),
@@ -870,6 +762,434 @@ export const productApi = {
     api.post<ApiResponse<{ count: number; message: string }>>('/products/import', { sql_path }),
   search: (keyword: string, limit?: number) =>
     api.get<ApiResponse<{ items: ProductData[]; total: number }>>('/products', { params: { keyword, limit } }),
+};
+
+export interface AIAnalysisResult {
+  analysis_id: string;
+  analysis_type: string;
+  result_data: any;
+  timestamp_ms: number;
+  anomaly_count: number;
+  comfort_score: number | null;
+  activity_type: string | null;
+  home_id: string | null;
+  created_at: string;
+}
+
+/** 告警分析结果（规则引擎生成） */
+export interface AlertAnalysisResult {
+  id: number;
+  analysis_id: string;
+  event_id: string;
+  alert_type: string;
+  root_cause: {
+    primary_cause: string;
+    confidence: number;
+    contributing_factors: string[];
+    evidence: string[];
+    is_false_alarm: boolean;
+    false_alarm_reason: string;
+  } | null;
+  impact: {
+    severity: string;
+    affected_rooms: string[];
+    affected_devices: string[];
+    potential_consequences: string[];
+    estimated_scope: string;
+  } | null;
+  remediation: Array<{
+    step: number;
+    action: string;
+    urgency: string;
+    expected_outcome: string;
+    requires_manual_intervention: boolean;
+  }> | null;
+  urgency_level: 'critical' | 'high' | 'medium' | 'low';
+  recommended_actions: string[] | null;
+  raw_response: Record<string, any> | null;
+  model_used: string;
+  success: number;
+  created_at_ms: number;
+  created_at: string;
+}
+
+export interface TokenUsageEvent {
+  id: string;
+  timestamp_ms: number;
+  model: string;
+  usage_type: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  request_id: string;
+  created_at: string;
+}
+
+export interface TokenQuotaStatus {
+  model: string;
+  usage_type: string;
+  daily_limit: number;
+  warning_threshold: number;
+  current_usage: number;
+  remaining: number;
+  usage_percent: number;
+  status: 'ok' | 'warning' | 'exceeded';
+  message: string;
+}
+
+export interface TokenDailyData {
+  date: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface SmartHomeAssistantResponse {
+  assistant_mode: string;
+  timestamp: string;
+  user_id: string;
+  anomalies: any[];
+  activity: any;
+  comfort: any;
+  emotion: any;
+  behavior_prediction: any;
+  energy_optimization: any;
+  proactive_actions: any[];
+  proactive_actions_total: number;
+  proactive_actions_page: number;
+  proactive_actions_page_size: number;
+  proactive_actions_total_pages: number;
+  device_count: number;
+  online_count: number;
+  connected_protocols: string[];
+}
+
+export interface EmotionAnalysisResult {
+  emotion: string;
+  confidence: number;
+  description: string;
+  suggested_environment: {
+    lighting?: string;
+    temperature?: number;
+    music?: string;
+  };
+}
+
+export interface EmotionalProfile {
+  user_id: string;
+  average_emotion: string;
+  emotion_patterns: {
+    hour: number;
+    emotion: string;
+    confidence: number;
+  }[];
+  preferences: {
+    lighting?: string;
+    temperature?: number;
+    music?: string;
+  };
+}
+
+export interface EnergyStats {
+  daily_stats: {
+    date: string;
+    consumption_kwh: number;
+    generation_kwh: number;
+    peak_watts: number;
+    avg_watts: number;
+  }[];
+}
+
+export interface EnergyReport {
+  period_days: number;
+  total_consumption_kwh: number;
+  total_generation_kwh: number;
+  average_daily_consumption_kwh: number;
+  peak_consumption_watts: number;
+  energy_savings_pct: number;
+  recommendations: any[];
+}
+
+export interface EnergyOptimization {
+  current_mode: string;
+  recommendations: {
+    action: string;
+    description: string;
+    priority: string;
+    estimated_savings_watts: number;
+  }[];
+  current_price_per_kwh: number;
+}
+
+export interface DeviceInfo {
+  device_id: string;
+  name: string;
+  type: string;
+  category: string;
+  state: string;
+  protocol: string;
+  properties: any;
+}
+
+export interface PrivacyStatus {
+  anonymization_enabled: boolean;
+  data_retention_days: number;
+  federated_learning_enabled: boolean;
+  local_only_processing: boolean;
+}
+
+export interface LearningStatus {
+  is_running: boolean;
+  models: Array<{
+    name: string;
+    status: string;
+    last_learning_time: string | null;
+    feedback_count: number;
+  }>;
+  total_feedback_count: number;
+  last_cycle_time: string | null;
+}
+
+export interface LearningCycle {
+  cycle_id: string;
+  model_name: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  feedback_used: number;
+  rules_generated: number;
+  duration_ms: number | null;
+}
+
+export interface LearningRule {
+  rule_id: string;
+  model_name: string;
+  rule_type: string;
+  condition: string;
+  action: string;
+  confidence: number;
+  enabled: boolean;
+  created_at: string;
+  applied_count: number;
+}
+
+export interface PerformanceMetric {
+  model_name: string;
+  accuracy: number;
+  precision: number;
+  recall: number;
+  f1_score: number;
+  feedback_count: number;
+  learning_cycles: number;
+  window_hours: number;
+}
+
+export interface ProblematicPattern {
+  pattern_id: string;
+  model_name: string;
+  pattern_type: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+  affected_count: number;
+  suggested_fix: string;
+  detected_at: string;
+}
+
+export const aiApi = {
+  getAnalysisResults: (params?: { page?: number; page_size?: number; analysis_type?: string; home_id?: string }) =>
+    api.get<ApiResponse<PaginatedData<AIAnalysisResult>>>('/ai/analysis/results', { params }),
+  getTokenUsage: (params?: { since_ms?: number; until_ms?: number; model?: string; usage_type?: string }) =>
+    api.get<ApiResponse<{ usage: TokenUsageEvent[]; summary: { prompt_tokens: number; completion_tokens: number; total_tokens: number; request_count: number }; truncated: boolean }>>('/ai/token/usage', { params }),
+  getTokenQuota: (params?: { model?: string; usage_type?: string }) =>
+    api.get<ApiResponse<TokenQuotaStatus>>('/ai/token/quota', { params }),
+  setTokenQuota: (model: string, usage_type: string, daily_limit: number, warning_threshold: number) =>
+    api.post<ApiResponse<{ status: string; message: string; quota: TokenQuotaStatus }>>('/ai/token/quota', { params: { model, usage_type, daily_limit, warning_threshold } }),
+  getTokenDailyUsage: (params?: { since_date?: string; until_date?: string }) =>
+    api.get<ApiResponse<{ daily_data: TokenDailyData[]; total_tokens: number }>>('/ai/token/daily', { params }),
+  getSmartHomeAssistant: (params?: { user_id?: string; page?: number; page_size?: number }) =>
+    api.get<ApiResponse<SmartHomeAssistantResponse>>('/ai/assistant', { params: params || {} }),
+  analyzeEmotion: (user_id?: string, activity?: string, hour?: number) =>
+    api.get<ApiResponse<EmotionAnalysisResult>>('/ai/emotion', { params: { user_id, activity, hour } }),
+  getEmotionalProfile: (user_id?: string) =>
+    api.get<ApiResponse<EmotionalProfile>>('/ai/emotion/profile', { params: { user_id } }),
+  getEnergyStats: (days?: number) =>
+    api.get<ApiResponse<EnergyStats>>('/ai/energy/stats', { params: { days } }),
+  getEnergyReport: (days?: number) =>
+    api.get<ApiResponse<EnergyReport>>('/ai/energy/report', { params: { days } }),
+  getEnergyOptimization: () =>
+    api.get<ApiResponse<EnergyOptimization>>('/ai/energy/optimization'),
+  getDevices: () =>
+    api.get<ApiResponse<{ devices: DeviceInfo[]; count: number; protocols: string[] }>>('/ai/devices'),
+  executeDeviceAction: (device_id: string, action: string, params?: string) =>
+    api.post<ApiResponse<{ success: boolean; message: string }>>('/ai/devices/action', { params: { device_id, action, params } }),
+  getPrivacyStatus: () =>
+    api.get<ApiResponse<PrivacyStatus>>('/ai/privacy/status'),
+  anonymizeData: (data: string) =>
+    api.post<ApiResponse<{ original: any; anonymized: any }>>('/ai/privacy/anonymize', { params: { data } }),
+  discoverMatterDevices: () =>
+    api.get<ApiResponse<{ devices: any[]; count: number }>>('/ai/matter/devices'),
+  commissionMatterDevice: (device_id: string, setup_code: string) =>
+    api.post<ApiResponse<{ success: boolean; message: string }>>('/ai/matter/commission', { params: { device_id, setup_code } }),
+  // Self-learning APIs
+  getLearningStatus: () => api.get<ApiResponse<LearningStatus>>('/ai/learning/status'),
+  startLearning: () => api.post<ApiResponse>('/ai/learning/start'),
+  stopLearning: () => api.post<ApiResponse>('/ai/learning/stop'),
+  getLearningPerformance: (params?: { model_name?: string; window_hours?: number }) =>
+    api.get<ApiResponse<Record<string, PerformanceMetric>>>('/ai/learning/performance', { params }),
+  getLearningCycles: (params?: { model_name?: string; limit?: number }) =>
+    api.get<ApiResponse<LearningCycle[]>>('/ai/learning/cycles', { params }),
+  getLearningRules: (params?: { model_name?: string }) =>
+    api.get<ApiResponse<LearningRule[]>>('/ai/learning/rules', { params }),
+  submitLearningFeedback: (data: {
+    model_name: string;
+    input_features: Record<string, unknown>;
+    predicted_output: Record<string, unknown>;
+    actual_output?: Record<string, unknown>;
+    feedback_type: string;
+    confidence: number;
+  }) => api.post<ApiResponse>('/ai/learning/feedback', data),
+  triggerLearningCycle: (model_name: string) =>
+    api.post<ApiResponse>('/ai/learning/trigger', { params: { model_name } }),
+  getProblematicPatterns: (model_name: string) =>
+    api.get<ApiResponse<ProblematicPattern[]>>('/ai/learning/problematic-patterns', { params: { model_name } }),
+  // 告警分析 API（规则引擎）
+  getAlertAnalyses: (params?: { page?: number; page_size?: number; alert_type?: string; urgency_level?: string }) =>
+    api.get<ApiResponse<PaginatedData<AlertAnalysisResult>>>('/ai/alerts', { params }),
+  getAlertAnalysis: (analysis_id: string) =>
+    api.get<ApiResponse<AlertAnalysisResult>>(`/ai/alerts/${analysis_id}`),
+  getAlertAnalysisByEvent: (event_id: string) =>
+    api.get<ApiResponse<AlertAnalysisResult[]>>(`/ai/alerts/event/${event_id}`),
+};
+
+/* ──────── ML 模型 API（V2 机器学习） ──────── */
+
+export interface MlModelInfo {
+  name: string;
+  type: string;
+  status: 'ready' | 'not_trained' | 'training' | 'error';
+  accuracy: number | null;
+  feature_count: number;
+  samples: number;
+  last_trained: string | null;
+  error: string | null;
+  trainable?: boolean;
+  training_source?: 'bootstrap' | 'real_feedback' | 'mixed' | 'unknown';
+}
+
+export interface MlModelDetail extends MlModelInfo {
+  feature_names: string[];
+  hyperparameters: Record<string, unknown>;
+}
+
+export interface TrainResult {
+  model_name: string;
+  accuracy: number;
+  samples: number;
+  train_time: number;
+  message: string;
+  training_source?: 'bootstrap' | 'real_feedback' | 'mixed' | 'unknown';
+}
+
+export interface RetrainCheckResult {
+  model_name: string;
+  needs_retrain: boolean;
+  accumulated_feedback: number;
+  threshold: number;
+  current_accuracy: number | null;
+}
+
+export interface AbExperiment {
+  name: string;
+  model_name: string;
+  ml_ratio: number;
+  shadow_mode: boolean;
+  min_sample_size: number;
+  status: 'running' | 'stopped' | 'completed';
+  start_time: string;
+  variant_a_samples: number;
+  variant_b_samples: number;
+}
+
+export interface AbAnalysisResult {
+  experiment_name: string;
+  variant_a_metrics: Record<string, number>;
+  variant_b_metrics: Record<string, number>;
+  winner: 'a' | 'b' | 'tie';
+  confidence: number;
+  improvement: Record<string, number>;
+}
+
+export interface OnlineLearningStatus {
+  models: Array<{
+    name: string;
+    feedback_since_last_train: number;
+    retrain_threshold: number;
+    last_retrain: string | null;
+    accuracy_trend: number[];
+  }>;
+}
+
+export interface FeatureImportanceItem {
+  feature: string;
+  importance: number;
+  std?: number;
+}
+
+export interface ModelExplanation {
+  model_name: string;
+  feature_importance: FeatureImportanceItem[];
+  top_features: string[];
+  model_type: string;
+  accuracy: number | null;
+}
+
+export interface PredictionExplanation {
+  features: Record<string, number>;
+  contributions: Record<string, number>;
+  top_contributors: Array<{ feature: string; contribution: number }>;
+}
+
+export const mlApi = {
+  getModels: () => api.get<ApiResponse<{ models: MlModelInfo[]; total: number }>>('/ai/ml/models'),
+  getModelDetail: (name: string) => api.get<ApiResponse<MlModelDetail>>(`/ai/ml/models/${name}`),
+  trainModel: (name: string) => api.post<ApiResponse<TrainResult>>(`/ai/ml/models/${name}/train`),
+  trainAllModels: () => api.post<ApiResponse<{ results: TrainResult[] }>>('/ai/ml/models/train-all'),
+  submitFeedback: (data: {
+    model_name: string;
+    actual: Record<string, unknown>;
+    predicted: Record<string, unknown>;
+    score?: number;
+  }) => api.post<ApiResponse>(`/ai/ml/models/${data.model_name}/feedback`, data),
+  checkRetrain: (name: string) =>
+    api.post<ApiResponse<RetrainCheckResult>>(`/ai/ml/models/${name}/check-retrain`),
+
+  getHealth: () => api.get<ApiResponse<Record<string, unknown>>>('/ai/ml/health'),
+
+  startExperiment: (config: {
+    name: string;
+    model_name: string;
+    ml_ratio?: number;
+    shadow_mode?: boolean;
+    min_sample_size?: number;
+  }) => api.post<ApiResponse>('/ai/ml/ab/start', config),
+  getExperimentStatus: () => api.get<ApiResponse<{ experiments: AbExperiment[] }>>('/ai/ml/ab/status'),
+  analyzeExperiment: (name: string) =>
+    api.post<ApiResponse<AbAnalysisResult>>('/ai/ml/ab/analyze', { experiment_name: name }),
+  promoteExperiment: (name: string) =>
+    api.post<ApiResponse>('/ai/ml/ab/promote', { experiment_name: name }),
+
+  getOnlineStatus: () => api.get<ApiResponse<OnlineLearningStatus>>('/ai/ml/online/status'),
+  retrainOnline: (name: string) =>
+    api.post<ApiResponse<TrainResult>>(`/ai/ml/online/retrain?model_name=${name}`),
+
+  explainModel: (name: string) => api.get<ApiResponse<ModelExplanation>>(`/ai/ml/explain/${name}`),
+  explainPrediction: (name: string, features: Record<string, number>) =>
+    api.post<ApiResponse<PredictionExplanation>>('/ai/ml/explain/prediction', { model_name: name, features }),
+  getFeatureImportance: (name: string) =>
+    api.get<ApiResponse<{ model_name: string; feature_importance: FeatureImportanceItem[] }>>(
+      `/ai/ml/feature-importance/${name}`
+    ),
 };
 
 export default api;

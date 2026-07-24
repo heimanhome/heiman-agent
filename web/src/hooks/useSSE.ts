@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { authManager } from '../api/auth-manager';
 
 interface SSEEvent {
   event: string;
@@ -84,16 +83,10 @@ export function useSSE({
   const connect = useCallback(() => {
     if (!enabledRef.current) return;
 
-    const token = authManager.getAccessToken();
-    if (!token) {
-      setError('No authentication token');
-      return;
-    }
-
     clearReconnectTimeout();
     hasOpenedRef.current = false;
 
-    const url = `/api/events/stream?token=${token}`;
+    const url = '/api/events/stream';
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
@@ -108,15 +101,16 @@ export function useSSE({
     eventSource.onerror = (e) => {
       setConnected(false);
       console.error('[SSE] Connection error:', e);
-      
-      if (!hasOpenedRef.current && eventSource.readyState !== EventSource.CLOSED) {
+
+      // 401 未认证:连接从未 opened 过,说明是认证失败,不要重连(避免死循环)
+      if (!hasOpenedRef.current) {
         eventSource.close();
         eventSourceRef.current = null;
         setError('Authentication failed');
-        console.error('[SSE] Auth failure detected, closing connection');
+        console.error('[SSE] Auth failure (401) detected, stopping reconnection');
         return;
       }
-      
+
       if (eventSource.readyState === EventSource.CLOSED) {
         setError('Connection closed');
         scheduleReconnect();
@@ -182,15 +176,6 @@ export function useSSE({
     const cleanup = connect();
     return cleanup;
   }, [connect, enabled, reconnectCounter]);
-
-  useEffect(() => {
-    const handleTokenChange = () => {
-      setReconnectCounter(c => c + 1);
-    };
-
-    const unsubscribe = authManager.onTokenChange(handleTokenChange);
-    return unsubscribe;
-  }, []);
 
   const reconnect = useCallback(() => {
     setReconnectCounter(c => c + 1);

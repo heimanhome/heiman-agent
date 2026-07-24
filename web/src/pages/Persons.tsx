@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Users, UserPlus, Edit, Trash2, Loader2, FileText, CheckSquare, Plus, X, AlertCircle, CheckCircle, RefreshCw, User, Crown, Shield } from 'lucide-react';
+import { Users, UserPlus, Edit, Trash2, Loader2, FileText, Plus, X, AlertCircle, RefreshCw, User, Crown, Shield } from 'lucide-react';
 import { personApi, type Person } from '../api/client';
 import { useAppStore } from '../store';
-import type { HomeEntry, HomeEntryType, Task, ProgressRecord, DurationRecord, EventRecord } from '../types';
+import type { HomeEntry, HomeEntryType } from '../types';
 
 const entryTypeLabels: Record<HomeEntryType, string> = {
   member_persona: '成员画像',
@@ -26,16 +26,12 @@ export function Persons() {
 
   const {
     homeEntries,
-    tasks,
     fetchHomeEntries,
-    fetchTasks,
     addHomeEntry,
     updateHomeEntry,
     deleteHomeEntry,
     confirmCandidate,
     ignoreCandidate,
-    setTaskEnabled,
-    deleteTask,
     fetchHomes,
     currentHomeId,
   } = useAppStore();
@@ -56,9 +52,8 @@ export function Persons() {
   useEffect(() => {
     if (currentHomeId) {
       fetchHomeEntries();
-      fetchTasks();
     }
-  }, [currentHomeId, fetchHomeEntries, fetchTasks]);
+  }, [currentHomeId, fetchHomeEntries]);
 
   const loadPersons = async () => {
     setLoading(true);
@@ -151,47 +146,6 @@ export function Persons() {
     if (role === 'admin') return t('roleAdmin');
     if (role === 'member') return t('roleMember');
     return t('roleMember');
-  };
-
-  const renderTaskRecord = (task: Task) => {
-    if (!task.record) {
-      return <p className="text-xs text-gray-500 dark:text-[#6b7a9a] mt-2">{t('noRecord')}</p>;
-    }
-    const r = task.record;
-    if (r.kind === 'progress') {
-      const rec = r as ProgressRecord;
-      const pct = Math.min(100, Math.round((rec.current / Math.max(1, rec.target)) * 100));
-      return (
-        <div className="mt-3">
-          <div className="flex justify-between text-xs text-gray-500 dark:text-[#6b7a9a] mb-1">
-            <span>{rec.current} / {rec.target} {rec.unit}</span>
-            <span>{pct}%</span>
-          </div>
-          <div className="h-2 bg-[#0f1419] rounded overflow-hidden">
-            <div className="h-full bg-[#00d4ff]" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
-      );
-    }
-    if (r.kind === 'duration') {
-      const rec = r as DurationRecord;
-      return (
-        <div className="mt-3">
-          <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">
-            {rec.accumulated_minutes} / {rec.target_minutes} {t('minutes')}
-            {rec.active_session_start_at && <span className="ml-2 text-[#00ff88]">● {t('active')}</span>}
-          </p>
-        </div>
-      );
-    }
-    const rec = r as EventRecord;
-    return (
-      <div className="mt-3">
-        <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">
-          {t('total')}: {rec.total_count} | {t('today')}: {rec.today_count}
-        </p>
-      </div>
-    );
   };
 
   return (
@@ -385,10 +339,10 @@ export function Persons() {
           <div className="mt-6 pt-6 border-t border-white/5">
             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-[#ffa502]" />
-              {t('pendingCandidates')} ({homeEntries.candidates.length})
+              {t('pendingCandidates')} ({(homeEntries.candidates || []).length})
             </h3>
             <div className="space-y-3">
-              {homeEntries.candidates.map((candidate) => (
+              {(homeEntries.candidates || []).map((candidate) => (
                 <div key={candidate.id} className="bg-[#ffa502]/10 rounded-xl p-4 flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -418,62 +372,6 @@ export function Persons() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-[#0f2137] rounded-xl p-6 border border-gray-200 dark:border-white/5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <CheckSquare className="w-5 h-5" />
-              {t('tasks')}
-            </h2>
-            <p className="text-xs text-gray-500 dark:text-[#6b7a9a]">{t('tasksDescription')}</p>
-          </div>
-        </div>
-
-        {tasks.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {tasks.map((task) => (
-              <div key={task.task_id} className="bg-white/5 rounded-xl p-4">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h3 className="text-gray-900 dark:text-white font-semibold">{task.description}</h3>
-                    {task.status === 'paused' && (
-                      <span className="text-xs text-yellow-400">● {t('paused')}</span>
-                    )}
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setTaskEnabled(task.task_id, task.status === 'paused')}
-                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
-                      aria-label={task.status === 'active' ? t('disable') : t('enable')}
-                    >
-                      {task.status === 'active' ? (
-                        <CheckCircle className="w-4 h-4 text-gray-900 dark:text-white" />
-                      ) : (
-                        <X className="w-4 h-4 text-gray-900 dark:text-white" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => deleteTask(task.task_id)}
-                      className="p-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
-                      aria-label={t('delete')}
-                    >
-                      <Trash2 className="w-4 h-4 text-gray-900 dark:text-white" />
-                    </button>
-                  </div>
-                </div>
-                {renderTaskRecord(task)}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <CheckSquare className="w-10 h-10 mx-auto mb-3 text-gray-500 dark:text-[#6b7a9a]" />
-            <p className="text-gray-500 dark:text-[#6b7a9a]">{t('noTasks')}</p>
-            <p className="text-xs text-[#4a5568]">{t('tasksHint')}</p>
           </div>
         )}
       </div>

@@ -17,6 +17,7 @@ class ActivityType(Enum):
     WATCHING_TV = "watching_tv"
     SHOWERING = "showering"
     CLEANING = "cleaning"
+    IDLE = "idle"
     UNKNOWN = "unknown"
 
 
@@ -63,6 +64,7 @@ class ActivityResult:
             ActivityType.WATCHING_TV: "看电视",
             ActivityType.SHOWERING: "洗澡",
             ActivityType.CLEANING: "打扫",
+            ActivityType.IDLE: "在家",
             ActivityType.UNKNOWN: "未知活动",
         }
         return labels[self.activity]
@@ -109,7 +111,10 @@ class BehaviorRecognizer:
                 possible_activities.extend(activities)
         
         lights_on = any(d.get("type") == "light" and d.get("switchState") == 1 for d in room_devices)
-        motion_detected = any(d.get("type") == "motion" and d.get("switchState") == 1 for d in room_devices)
+        motion_detected = any(
+            d.get("type") == "motion" and (d.get("motionState") == 1 or d.get("switchState") == 1)
+            for d in room_devices
+        )
         
         if "bedroom" in room_name_lower:
             hour = now.hour
@@ -187,53 +192,106 @@ class BehaviorRecognizer:
         return ActivityResult(activity=ActivityType.UNKNOWN, confidence=0.3, room_id=room_id)
 
     def _recognize_global(self, devices_data: List[Dict], now: datetime) -> ActivityResult:
-        door_devices = [d for d in devices_data if "door" in d.get("type", "").lower()]
+        # 门磁类型匹配：兼容 "door" 和 "contact"（门磁传感器）
+        door_devices = [d for d in devices_data
+                        if any(kw in d.get("type", "").lower() for kw in ("door", "contact"))]
         motion_devices = [d for d in devices_data if "motion" in d.get("type", "").lower()]
-        light_devices = [d for d in devices_data if "light" in d.get("type", "").lower()]
-        
-        all_doors_closed = all(d.get("switchState") == 0 for d in door_devices if d.get("switchState") is not None)
-        any_motion = any(d.get("switchState") == 1 for d in motion_devices if d.get("switchState") is not None)
-        all_lights_off = all(d.get("switchState") == 0 for d in light_devices if d.get("switchState") is not None)
-        
+        light_devices = [d for d in devices_data
+                         if any(kw in d.get("type", "").lower() for kw in ("light", "switch"))]
+
+        # 判断时必须确保有对应设备，否则不能做决策（防止空列表真空真）
+        has_doors = len(door_devices) > 0
+        has_motion = len(motion_devices) > 0
+        has_lights = len(light_devices) > 0
+
+        # 门磁：contactState 表示门是否打开（物模型 ContactState），switchState 是报警使能
+        all_doors_closed = has_doors and all(
+            (d.get("contactState") == 0 and d.get("switchState") == 0)
+            for d in door_devices
+            if d.get("contactState") is not None or d.get("switchState") is not None
+        )
+        any_door_open = has_doors and any(
+            d.get("contactState") == 1 or d.get("switchState") == 1
+            for d in door_devices
+            if d.get("contactState") is not None or d.get("switchState") is not None
+        )
+
+        # 移动侦测：优先使用 motionState，兼容 switchState
+        any_motion = has_motion and any(
+            d.get("motionState") == 1 or d.get("switchState") == 1
+            for d in motion_devices
+            if d.get("motionState") is not None or d.get("switchState") is not None
+        )
+
+        # 灯光：switchState=0 表示关闭
+        all_lights_off = has_lights and all(
+            d.get("switchState") == 0 for d in light_devices if d.get("switchState") is not None
+        )
+
         hour = now.hour
-        
+        logger.debug(
+            "[BehaviorRecognizer] devices: doors=%d(has=%s) motion=%d(has=%s) lights=%d(has=%s) "
+            "all_doors_closed=%s any_door_open=%s any_motion=%s all_lights_off=%s hour=%d",
+            len(door_devices), has_doors, len(motion_devices), has_motion,
+            len(light_devices), has_lights,
+            all_doors_closed, any_door_open, any_motion, all_lights_off, hour,
+        )
+
+        # 夜间 → 睡觉（需要门和灯光设备存在）
         if hour >= 22 or hour < 6:
-            if all_lights_off and all_doors_closed:
+            if has_doors and has_lights and all_lights_off and all_doors_closed:
                 return ActivityResult(
                     activity=ActivityType.SLEEPING,
                     confidence=0.85,
                     details={"all_lights_off": all_lights_off, "all_doors_closed": all_doors_closed},
                 )
-        
+
+        # 早晨 → 醒来（需要移动和灯光设备存在）
         if 6 <= hour < 10:
-            if any_motion and not all_lights_off:
+            if has_motion and any_motion and has_lights and not all_lights_off:
                 return ActivityResult(
                     activity=ActivityType.AWAKING,
                     confidence=0.8,
                     details={"any_motion": any_motion, "lights_off": all_lights_off},
                 )
-        
-        if door_devices:
-            front_door = next((d for d in door_devices if "main" in d.get("name", "").lower()), door_devices[0])
-            if front_door.get("switchState") == 1:
-                return ActivityResult(
-                    activity=ActivityType.RETURNING,
-                    confidence=0.85,
-                    room_id=front_door.get("room"),
-                    details={"door_open": True, "door_name": front_door.get("name")},
-                )
-        
-        if all_doors_closed and not any_motion and all_lights_off:
+
+        # 门开着 → 回家（需要门设备存在）
+        if has_doors and any_door_open:
+            front_door = next(
+                (d for d in door_devices if "main" in d.get("name", "").lower()),
+                door_devices[0]
+            )
+            return ActivityResult(
+                activity=ActivityType.RETURNING,
+                confidence=0.85,
+                room_id=front_door.get("room"),
+                details={"door_open": True, "door_name": front_door.get("name")},
+            )
+
+        # 门全关 + 无移动 + 灯全灭 → 离家（必须有至少门设备）
+        if has_doors and all_doors_closed and not any_motion and all_lights_off:
             return ActivityResult(
                 activity=ActivityType.LEAVING,
                 confidence=0.8,
-                details={"all_doors_closed": all_doors_closed, "no_motion": not any_motion, "all_lights_off": all_lights_off},
+                details={
+                    "all_doors_closed": all_doors_closed,
+                    "no_motion": not any_motion,
+                    "all_lights_off": all_lights_off,
+                },
             )
         
         study_devices = [d for d in devices_data if d.get("room") and "study" in d.get("room").lower()]
         if study_devices:
-            study_lights_on = any(d.get("type") == "light" and d.get("switchState") == 1 for d in study_devices)
-            study_motion = any(d.get("type") == "motion" and d.get("switchState") == 1 for d in study_devices)
+            study_lights_on = any(
+                d.get("type", "") in ("light", "switch") and d.get("switchState") == 1
+                for d in study_devices
+            )
+            study_motion = any(
+                d.get("type", "") == "motion" and (
+                    d.get("motionState") == 1 or d.get("switchState") == 1
+                )
+                for d in study_devices
+            )
             if study_lights_on and study_motion:
                 return ActivityResult(
                     activity=ActivityType.WORKING,
@@ -244,7 +302,10 @@ class BehaviorRecognizer:
         
         kitchen_devices = [d for d in devices_data if d.get("room") and "kitchen" in d.get("room").lower()]
         if kitchen_devices:
-            kitchen_motion = any(d.get("type") == "motion" and d.get("switchState") == 1 for d in kitchen_devices)
+            kitchen_motion = any(
+                d.get("type") == "motion" and (d.get("motionState") == 1 or d.get("switchState") == 1)
+                for d in kitchen_devices
+            )
             kitchen_smoke = any(d.get("type") == "smoke" and d.get("smokeState") == 1 for d in kitchen_devices)
             if kitchen_motion and kitchen_smoke:
                 return ActivityResult(
@@ -254,7 +315,22 @@ class BehaviorRecognizer:
                     details={"kitchen_motion": kitchen_motion, "kitchen_smoke": kitchen_smoke},
                 )
         
-        return ActivityResult(activity=ActivityType.UNKNOWN, confidence=0.2)
+        # 没有匹配到具体活动时，根据时间和设备在线情况给出合理兜底
+        # 夜间 → 推测睡觉；白天有设备在线 → 推测在家
+        if hour >= 22 or hour < 6:
+            return ActivityResult(
+                activity=ActivityType.SLEEPING,
+                confidence=0.4,
+                details={"fallback": "nighttime_inference", "hour": hour},
+            )
+        elif not devices_data:
+            return ActivityResult(activity=ActivityType.UNKNOWN, confidence=0.1)
+        else:
+            return ActivityResult(
+                activity=ActivityType.IDLE,
+                confidence=0.4,
+                details={"fallback": "devices_online_no_pattern", "device_count": len(devices_data)},
+            )
 
     def get_daily_routine(self, events: List[Dict], date: Optional[datetime] = None) -> Dict:
         target_date = date or datetime.now()

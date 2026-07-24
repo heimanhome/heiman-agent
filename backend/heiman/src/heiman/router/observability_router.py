@@ -222,10 +222,11 @@ async def list_traces(
     since: int | None = None,
     until: int | None = None,
     has_agent: int | None = None,
-    limit: int = 100,
+    page: int = 1,
+    page_size: int = 20,
     current_user: str = Depends(verify_token),
 ):
-    """trace 列表"""
+    """trace 列表（分页）"""
     db_path = request.app.state.obs_db_path
     conn = connect(db_path)
     try:
@@ -241,11 +242,31 @@ async def list_traces(
             clauses.append("has_agent_turn = ?")
             params.append(has_agent)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        sql = f"SELECT * FROM traces_v {where} ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
+
+        # 查总数
+        count_sql = f"SELECT COUNT(*) FROM traces_v {where}"
+        count_row = conn.execute(count_sql, params).fetchone()
+        total = count_row[0] if count_row else 0
+
+        offset = (page - 1) * page_size
+        data_sql = f"SELECT * FROM traces_v {where} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        params.append(page_size)
+        params.append(offset)
+        rows = conn.execute(data_sql, params).fetchall()
         cols = [d[0] for d in conn.execute("SELECT * FROM traces_v LIMIT 0").description]
-        return {"success": True, "data": [dict(zip(cols, r)) for r in rows]}
+
+        total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 1
+
+        return {
+            "success": True,
+            "data": {
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "items": [dict(zip(cols, r)) for r in rows],
+            },
+        }
     finally:
         conn.close()
 
@@ -316,43 +337,4 @@ async def list_agent_runs(
         conn.close()
 
 
-@router.get("/events")
-async def list_events(
-    request: Request,
-    event_type: str | None = None,
-    source: str | None = None,
-    trace_id: str | None = None,
-    since: int | None = None,
-    until: int | None = None,
-    limit: int = 100,
-    current_user: str = Depends(verify_token),
-):
-    """events 列表"""
-    db_path = request.app.state.obs_db_path
-    conn = connect(db_path)
-    try:
-        clauses: list[str] = []
-        params: list[Any] = []
-        if event_type:
-            clauses.append("event_type = ?")
-            params.append(event_type)
-        if source:
-            clauses.append("source = ?")
-            params.append(source)
-        if trace_id:
-            clauses.append("trace_id = ?")
-            params.append(trace_id)
-        if since is not None:
-            clauses.append("timestamp >= ?")
-            params.append(since)
-        if until is not None:
-            clauses.append("timestamp <= ?")
-            params.append(until)
-        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-        sql = f"SELECT * FROM events {where} ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        rows = conn.execute(sql, params).fetchall()
-        cols = [d[0] for d in conn.execute("SELECT * FROM events LIMIT 0").description]
-        return {"success": True, "data": [dict(zip(cols, r)) for r in rows]}
-    finally:
-        conn.close()
+

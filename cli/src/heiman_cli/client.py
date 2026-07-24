@@ -17,8 +17,6 @@ from heiman_cli.config import load_config
 def _get_client(cfg: dict) -> httpx.Client:
     server = cfg["server"]
     headers = {}
-    if token := server.get("token"):
-        headers["Authorization"] = f"bearer {token}"
     tls = server.get("tls_verify", False)
     verify = tls if isinstance(tls, bool) else str(tls).lower() == "true"
     return httpx.Client(

@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from pydantic import BaseModel
 
 from heiman.database.rule_repo import RuleRepo
+from heiman.database.rule_suggestion_repo import RuleSuggestionRepo
 from heiman.dependencies import get_rule_repo
-from heiman.schema.rule import Rule, RuleAction, RuleCondition, RuleActionType, SensorType
+from heiman.schema.rule import Rule, RuleAction, RuleCondition, RuleActionType, SensorType, SuggestionStatus
+from heiman.ai.smart_rule_generator import SmartRuleGenerator
 
 router = APIRouter(prefix="/rules", tags=["rules"])
 logger = logging.getLogger(__name__)
@@ -327,4 +329,85 @@ async def add_action(
         raise
     except Exception as e:
         logger.error("Failed to add action to rule %s: %s", rule_id, e)
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/suggestions", response_model=dict)
+async def get_rule_suggestions(
+    user_id: Annotated[str, Query()] = "default",
+    status: Annotated[str | None, Query()] = None,
+):
+    """获取规则建议列表"""
+    try:
+        suggestion_repo = RuleSuggestionRepo()
+        if status:
+            try:
+                status_enum = SuggestionStatus(status)
+                suggestions = suggestion_repo.get_by_user(user_id, status_enum)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid status value")
+        else:
+            suggestions = suggestion_repo.get_by_user(user_id)
+
+        logger.info("Listed %d rule suggestions for user %s", len(suggestions), user_id)
+        return {"success": True, "data": [s.model_dump() for s in suggestions]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get rule suggestions: %s", e)
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/suggestions/{suggestion_id}/approve", response_model=dict)
+async def approve_rule_suggestion(suggestion_id: str):
+    """批准规则建议并创建规则"""
+    try:
+        generator = SmartRuleGenerator()
+        rule = await generator.approve_suggestion(suggestion_id)
+
+        if not rule:
+            raise HTTPException(status_code=404, detail="Suggestion not found or not pending")
+
+        logger.info("Approved rule suggestion: %s", rule.name)
+        return {"success": True, "data": rule.model_dump()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to approve rule suggestion: %s", e)
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/suggestions/{suggestion_id}/reject", response_model=dict)
+async def reject_rule_suggestion(suggestion_id: str):
+    """拒绝规则建议"""
+    try:
+        generator = SmartRuleGenerator()
+        success = await generator.reject_suggestion(suggestion_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Suggestion not found")
+
+        logger.info("Rejected rule suggestion: %s", suggestion_id)
+        return {"success": True, "message": "Suggestion rejected"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to reject rule suggestion: %s", e)
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/suggestions/generate", response_model=dict)
+async def generate_rule_suggestions(
+    user_id: Annotated[str, Query()] = "default",
+    home_id: Annotated[str, Query()] = "",
+):
+    """手动触发规则建议生成"""
+    try:
+        generator = SmartRuleGenerator()
+        suggestions = await generator.generate_rule_suggestions(user_id, home_id)
+
+        logger.info("Generated %d rule suggestions for user %s", len(suggestions), user_id)
+        return {"success": True, "data": [s.model_dump() for s in suggestions]}
+    except Exception as e:
+        logger.error("Failed to generate rule suggestions: %s", e)
         return {"success": False, "message": str(e)}

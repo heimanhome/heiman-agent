@@ -3,13 +3,13 @@ import logging
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, List, Dict, Tuple
 
 from heiman.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_DB_SCHEMA_VERSION = 13
+_DB_SCHEMA_VERSION = 18
 
 
 class SQLiteConnector:
@@ -19,7 +19,7 @@ class SQLiteConnector:
         self.timeout = 30
         self.check_same_thread = False
         self.isolation_level = None
-        self._connection: sqlite3.Connection | None = None
+        self._connection: Optional[sqlite3.Connection] = None
 
     def initialize_database(self) -> None:
         try:
@@ -209,6 +209,26 @@ class SQLiteConnector:
                                 cursor.execute("ALTER TABLE sensor_log_properties ADD COLUMN unit TEXT")
                                 logger.info("[DB] Added column unit to sensor_log_properties table")
 
+                        if current_version < 14:
+                            logger.info("[DB] Migrating to v14: creating_analysis_results table")
+                            self._create_ai_analysis_results_table(conn)
+
+                        if current_version < 15:
+                            logger.info("[DB] Migrating to v15: creating rule_executions table")
+                            self._create_rule_executions_table(conn)
+
+                        if current_version < 16:
+                            logger.info("[DB] Migrating to v16: creating rule_suggestions table")
+                            self._create_rule_suggestions_table(conn)
+
+                        if current_version < 17:
+                            logger.info("[DB] Migrating to v17: creating self-learning tables")
+                            self._create_self_learning_tables(conn)
+
+                        if current_version < 18:
+                            logger.info("[DB] Migrating to v18: creating alert_analyses table")
+                            self._create_alert_analyses_table(conn)
+
                         conn.execute(f"PRAGMA user_version = {_DB_SCHEMA_VERSION}")
                         conn.commit()
                         logger.info("[DB] Schema migration committed, version=%d", _DB_SCHEMA_VERSION)
@@ -266,6 +286,8 @@ class SQLiteConnector:
         self._create_person_table(conn)
         self._create_task_tables(conn)
         self._create_product_tables(conn)
+        self._create_ai_analysis_results_table(conn)
+        self._create_alert_analyses_table(conn)
         conn.execute(f"PRAGMA user_version = {_DB_SCHEMA_VERSION}")
         conn.commit()
         logger.info("[DB] Database table structure created successfully")
@@ -643,6 +665,174 @@ class SQLiteConnector:
 
         logger.info("[DB] task tables created successfully")
 
+    def _create_ai_analysis_results_table(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_analysis_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id TEXT NOT NULL UNIQUE,
+                analysis_type TEXT NOT NULL,
+                result_data TEXT NOT NULL,
+                timestamp_ms INTEGER NOT NULL,
+                anomaly_count INTEGER DEFAULT 0,
+                comfort_score REAL DEFAULT 0,
+                activity_type TEXT,
+                home_id TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_analysis_id ON ai_analysis_results(analysis_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_analysis_timestamp ON ai_analysis_results(timestamp_ms DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_analysis_type ON ai_analysis_results(analysis_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_analysis_home ON ai_analysis_results(home_id)")
+        logger.info("[DB] ai_analysis_results table created successfully")
+
+    def _create_alert_analyses_table(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alert_analyses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id TEXT NOT NULL UNIQUE,
+                event_id TEXT NOT NULL,
+                alert_type TEXT NOT NULL,
+                root_cause TEXT NOT NULL DEFAULT '{}',
+                impact TEXT NOT NULL DEFAULT '{}',
+                remediation TEXT NOT NULL DEFAULT '[]',
+                urgency_level TEXT DEFAULT 'medium',
+                recommended_actions TEXT DEFAULT '[]',
+                raw_response TEXT DEFAULT '',
+                model_used TEXT DEFAULT '',
+                success INTEGER DEFAULT 1,
+                created_at_ms INTEGER NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_analyses_id ON alert_analyses(analysis_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_analyses_event ON alert_analyses(event_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_analyses_type ON alert_analyses(alert_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_analyses_urgency ON alert_analyses(urgency_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_analyses_time ON alert_analyses(created_at_ms DESC)")
+        logger.info("[DB] alert_analyses table created successfully")
+
+    def _create_rule_executions_table(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rule_executions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id TEXT NOT NULL,
+                rule_name TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                executed_at TEXT NOT NULL,
+                success INTEGER DEFAULT 1,
+                error_message TEXT,
+                home_id TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_executions_rule_id ON rule_executions(rule_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_executions_executed ON rule_executions(executed_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_executions_home ON rule_executions(home_id)")
+        logger.info("[DB] rule_executions table created successfully")
+
+    def _create_rule_suggestions_table(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rule_suggestions (
+                suggestion_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                home_id TEXT,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                pattern_type TEXT NOT NULL,
+                trigger_device_id TEXT,
+                trigger_device_name TEXT,
+                action_device_id TEXT,
+                action_device_name TEXT,
+                rule_data TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                approved_at TEXT,
+                rejected_at TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_suggestions_user ON rule_suggestions(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_suggestions_status ON rule_suggestions(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_rule_suggestions_home ON rule_suggestions(home_id)")
+        logger.info("[DB] rule_suggestions table created successfully")
+
+    def _create_self_learning_tables(self, conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS model_feedback (
+                feedback_id TEXT PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                prediction_id TEXT,
+                input_features TEXT NOT NULL,
+                predicted_output TEXT NOT NULL,
+                actual_output TEXT,
+                feedback_type TEXT NOT NULL,
+                confidence REAL,
+                user_id TEXT,
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_feedback_model ON model_feedback(model_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_feedback_time ON model_feedback(timestamp DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_feedback_type ON model_feedback(feedback_type)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS learning_cycles (
+                cycle_id TEXT PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                samples_analyzed INTEGER DEFAULT 0,
+                improvements_made INTEGER DEFAULT 0,
+                performance_before REAL,
+                performance_after REAL,
+                error_message TEXT,
+                metadata TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cycle_model ON learning_cycles(model_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cycle_status ON learning_cycles(status)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS performance_metrics (
+                metric_id TEXT PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                metric_type TEXT NOT NULL,
+                value REAL NOT NULL,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                sample_count INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_model ON performance_metrics(model_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_type ON performance_metrics(metric_type)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS learning_rules (
+                rule_id TEXT PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                rule_type TEXT NOT NULL,
+                condition TEXT NOT NULL,
+                action TEXT NOT NULL,
+                confidence_threshold REAL DEFAULT 0.6,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_updated TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_learning_rules_model ON learning_rules(model_name)")
+
+        logger.info("[DB] Self-learning tables created successfully")
+
     @contextmanager
     def get_connection(self):
         conn = None
@@ -666,7 +856,7 @@ class SQLiteConnector:
             if conn:
                 conn.close()
 
-    def execute_query(self, query: str, params: tuple | None = None) -> list[dict[str, Any]]:
+    def execute_query(self, query: str, params: Optional[tuple] = None) -> List[Dict[str, Any]]:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -680,7 +870,7 @@ class SQLiteConnector:
             logger.error("[DB] Query execution failed: %s, SQL: %s", e, query)
             raise
 
-    def execute_update(self, query: str, params: tuple | None = None) -> int:
+    def execute_update(self, query: str, params: Optional[Tuple] = None) -> int:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -849,11 +1039,11 @@ def transaction():
             conn.close()
 
 
-def execute_query(query: str, params: tuple | None = None) -> list[dict[str, Any]]:
+def execute_query(query: str, params: Optional[Tuple] = None) -> list[dict[str, Any]]:
     return get_db_connector().execute_query(query, params)
 
 
-def execute_update(query: str, params: tuple | None = None) -> int:
+def execute_update(query: str, params: Optional[Tuple] = None) -> int:
     return get_db_connector().execute_update(query, params)
 
 

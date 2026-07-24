@@ -37,8 +37,8 @@ export function RuleEditor() {
         setName(rule.name);
         setDescription(rule.description);
         setEnabled(rule.enabled);
-        setConditions(rule.conditions.length > 0 ? rule.conditions : [{ sensor_type: undefined, operator: '>', threshold: 0, window_seconds: undefined }]);
-        setActions(rule.actions.length > 0 ? rule.actions : [{ action_type: 'alert', payload: { title: '', message: '' } }]);
+        setConditions((rule.conditions || []).length > 0 ? rule.conditions : [{ sensor_type: undefined, operator: '>', threshold: 0, window_seconds: undefined }]);
+        setActions((rule.actions || []).length > 0 ? rule.actions : [{ action_type: 'alert', payload: { title: '', message: '' } }]);
         setCooldownMinutes(rule.cooldown_minutes);
       }
     }

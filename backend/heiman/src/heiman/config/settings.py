@@ -154,7 +154,7 @@ class Settings(BaseSettings):
 _settings: Optional[Settings] = None
 
 
-def _load_config_from_db() -> dict | None:
+def _load_config_from_db() -> Optional[dict]:
     try:
         import json
         from heiman.database.kv_repo import get_kv_repo
@@ -214,6 +214,17 @@ def get_settings() -> Settings:
                     else:
                         setattr(_settings, key, value)
                         logger.info("[CONFIG] Restored %s from database", key)
+
+            if key == "model" and isinstance(value, dict):
+                heiman_obj = getattr(_settings.model, "heiman", None)
+                profiles = getattr(_settings.model, "heiman_profiles", [])
+                if heiman_obj and hasattr(heiman_obj, '__dict__') and len(profiles) == 0:
+                    profile_dict = {k: v for k, v in heiman_obj.__dict__.items() if not k.startswith('_')}
+                    if profile_dict.get("label"):
+                        profile = HeimanProfile(**profile_dict)
+                        profiles.append(profile)
+                        setattr(_settings.model, "heiman_profiles", profiles)
+                        logger.info("[CONFIG] Auto-added heiman to profiles")
     return _settings
 
 

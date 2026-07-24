@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import ssl as ssl_module
+import time
+from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from heiman.config import get_settings
@@ -47,6 +49,9 @@ class MqttService:
         self._event_callbacks: List[Callable[[str, str, Dict], None]] = []
         self._raw_message_callbacks: List[Callable[[str, Dict], None]] = []
 
+        self._token_refresh_task = None
+        self._last_token_refresh_time = 0
+
         self._initialized = True
         logger.info("[MQTT] MqttService initialized")
 
@@ -88,10 +93,15 @@ class MqttService:
             new_len,
         )
 
-    async def connect(self, access_token: str, user_id: str) -> bool:
-        if self._connected:
+    async def connect(self, access_token: str, user_id: str, force: bool = False) -> bool:
+        if self._connected and not force:
             logger.info("[MQTT] Already connected")
             return True
+
+        if self._connected and force:
+            logger.info("[MQTT] Forcing reconnection with new credentials")
+            await self.disconnect()
+            await asyncio.sleep(2.0)
 
         if self._connecting:
             logger.info("[MQTT] Already connecting, waiting for existing connection")
@@ -140,6 +150,9 @@ class MqttService:
                 except Exception as e:
                     logger.warning("[MQTT] Error disconnecting old client: %s", e)
                 self._client = None
+
+                await asyncio.sleep(2)
+                logger.info("[MQTT] Waited 2 seconds for broker to release old session")
 
             self._client = HeimanMqttClient(
                 access_token=access_token,
@@ -261,7 +274,21 @@ class MqttService:
             logger.error("[MQTT] Error handling event: %s", e)
 
     def _on_disconnect(self, rc: int):
-        logger.warning("[MQTT] Disconnected with rc=%d", rc)
+        error_messages = {
+            0: "Normal disconnection",
+            1: "Unacceptable protocol version",
+            2: "Identifier rejected",
+            3: "Server unavailable",
+            4: "Bad username or password",
+            5: "Not authorized (token may be expired)",
+            6: "Unexpected error",
+            7: "Client ID conflict",
+        }
+        logger.warning(
+            "[MQTT] Disconnected with rc=%d: %s",
+            rc,
+            error_messages.get(rc, f"Unknown error ({rc})"),
+        )
         self._connected = False
 
         if self._should_reconnect and self._access_token and self._user_id:
@@ -269,9 +296,9 @@ class MqttService:
                 logger.info("[MQTT] Reconnection already in progress, skipping")
                 return
             logger.info("[MQTT] Scheduling reconnection attempt")
-            asyncio.create_task(self._reconnect_with_backoff())
+            asyncio.create_task(self._reconnect_with_backoff(rc))
 
-    async def _reconnect_with_backoff(self):
+    async def _reconnect_with_backoff(self, last_rc: int = 0):
         if not self._should_reconnect or not self._access_token:
             return
 
@@ -282,6 +309,7 @@ class MqttService:
         
         backoff_delay = 5
         max_backoff = 60
+        token_refreshed = False
 
         try:
             while self._should_reconnect and not self._connected:
@@ -293,7 +321,18 @@ class MqttService:
                     if not self._should_reconnect:
                         return
 
-                    logger.info("[MQTT] Trying to reconnect with existing token")
+                    if last_rc == 5 and not token_refreshed:
+                        logger.warning("[MQTT] Authentication failed (rc=5), refreshing token before reconnecting")
+                        refresh_success = await self._refresh_token()
+                        if refresh_success:
+                            logger.info("[MQTT] Token refreshed successfully, proceeding to reconnect")
+                            token_refreshed = True
+                        else:
+                            logger.error("[MQTT] Token refresh failed, will try reconnecting with existing token")
+                    elif last_rc == 7:
+                        logger.warning("[MQTT] Client ID conflict (rc=7), will use new client_id for reconnection")
+
+                    logger.info("[MQTT] Trying to reconnect with token")
                     self._cleanup()
                     success = await self.connect(self._access_token, self._user_id)
 
@@ -302,6 +341,7 @@ class MqttService:
                         return
                     else:
                         logger.warning("[MQTT] Reconnection attempt failed")
+                        last_rc = 0
 
                 except Exception as e:
                     logger.error("[MQTT] Reconnection error: %s", e)
@@ -312,6 +352,98 @@ class MqttService:
         finally:
             self._reconnecting = False
 
+    async def _check_and_refresh_token(self) -> bool:
+        """检查 token 是否即将过期(5分钟内),若是则主动刷新。"""
+        try:
+            from heiman.shared_state import get_current_token
+
+            token_info = get_current_token()
+            if not token_info:
+                return True
+
+            expires_at = token_info.get("expires_at", 0)
+            now = time.time()
+            time_until_expiry = expires_at - now
+
+            if time_until_expiry <= 0:
+                logger.warning("[MQTT] Token already expired, refreshing immediately")
+                return await self._refresh_token()
+            elif time_until_expiry <= 300:
+                logger.info(
+                    "[MQTT] Token expiring soon (expires in %.0fs, expires_at=%s), refreshing proactively",
+                    time_until_expiry,
+                    datetime.fromtimestamp(expires_at).isoformat(),
+                )
+                return await self._refresh_token()
+            else:
+                return True
+        except Exception as e:
+            logger.error("[MQTT] Error checking token: %s", e)
+            return True
+
+    async def _refresh_token(self) -> bool:
+        """刷新 access_token 并更新 MQTT 连接。"""
+        try:
+            from heiman.shared_state import get_current_token, set_current_token
+            from heiman_mcp.client.heiman import HeimanClient
+
+            token_info = get_current_token()
+            if not token_info or not token_info.get("refresh_token"):
+                logger.warning("[MQTT] No refresh_token available")
+                return False
+
+            refresh_token = token_info["refresh_token"]
+            user_id = token_info.get("user_id", "")
+
+            logger.info("[MQTT] Refreshing token via refresh_token - user_id=%s", user_id)
+
+            settings = get_settings()
+            oauth_client = HeimanClient(
+                base_url=settings.heiman.api_url, token=None
+            )
+            try:
+                token_data = await oauth_client.refresh_access_token(
+                    refresh_token=refresh_token,
+                    client_id=settings.heiman.client_id,
+                    client_secret=settings.heiman.client_secret,
+                )
+            finally:
+                await oauth_client.close()
+
+            if isinstance(token_data, dict):
+                new_access_token = token_data.get("access_token")
+                new_refresh_token = token_data.get("refresh_token") or refresh_token
+                new_expires_at = time.time() + (token_data.get("expires_in", 3600))
+
+                if new_access_token:
+                    set_current_token({
+                        "access_token": new_access_token,
+                        "refresh_token": new_refresh_token,
+                        "expires_at": new_expires_at,
+                        "user_id": user_id,
+                    })
+
+                    self._access_token = new_access_token
+                    self._last_token_refresh_time = time.time()
+
+                    if self._client and hasattr(self._client, 'update_access_token'):
+                        self._client.update_access_token(new_access_token)
+
+                    logger.info(
+                        "[MQTT] Token refreshed successfully, new expires_at=%s",
+                        datetime.fromtimestamp(new_expires_at).isoformat(),
+                    )
+                    return True
+                else:
+                    logger.error("[MQTT] Token refresh failed: no access_token in response")
+                    return False
+            else:
+                logger.error("[MQTT] Token refresh returned unexpected response type")
+                return False
+        except Exception as e:
+            logger.error("[MQTT] Token refresh failed: %s", e, exc_info=True)
+            return False
+
     async def start_connection_monitor(self):
         if hasattr(self, '_monitor_task') and not self._monitor_task.done():
             return
@@ -319,6 +451,8 @@ class MqttService:
         async def monitor():
             while self._should_reconnect:
                 await asyncio.sleep(10)
+
+                await self._check_and_refresh_token()
                 
                 if self._connected and self._client:
                     if not self._client.is_connected:

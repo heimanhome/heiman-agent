@@ -45,15 +45,15 @@ export function Footer() {
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-[#6b7a9a] text-sm">
                 <Mail className="w-4 h-4 text-[#00d4ff]" />
-                <span>contact@heiman.io</span>
+                <span>help@heimanhome.com</span>
               </div>
               <div className="flex items-center gap-3 text-[#6b7a9a] text-sm">
                 <Phone className="w-4 h-4 text-[#00d4ff]" />
-                <span>+1 (888) 123-4567</span>
+                <span>+8618312377810</span>
               </div>
               <div className="flex items-center gap-3 text-[#6b7a9a] text-sm">
                 <MapPin className="w-4 h-4 text-[#00d4ff]" />
-                <span>San Francisco, CA</span>
+                <span>Copyright © Shenzhen Heiman Technology Co., Ltd. Privacy</span>
               </div>
             </div>
           </div>

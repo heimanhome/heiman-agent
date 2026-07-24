@@ -467,6 +467,53 @@ class SensorLogRepo:
             logger.error("Failed to get latest sensor logs by home: %s", e)
             raise
     
+    def get_all(self) -> list[dict]:
+        """获取所有设备的最新传感器日志（每个设备一条）"""
+        try:
+            results = execute_query(
+                """
+                SELECT s.* FROM sensor_logs s
+                INNER JOIN (
+                    SELECT did, MAX(timestamp) as max_ts 
+                    FROM sensor_logs 
+                    GROUP BY did
+                ) latest ON s.did = latest.did AND s.timestamp = latest.max_ts
+                ORDER BY s.timestamp DESC
+                """
+            )
+            
+            log_ids = [str(r["id"]) for r in results]
+            if log_ids:
+                properties_query = """
+                    SELECT log_id, property_id, property_name, value, value_type, unit
+                    FROM sensor_log_properties
+                    WHERE log_id IN ({})
+                """.format(",".join("?" * len(log_ids)))
+                properties = execute_query(properties_query, tuple(log_ids))
+                
+                prop_map = {}
+                for p in properties:
+                    log_id = str(p["log_id"])
+                    if log_id not in prop_map:
+                        prop_map[log_id] = []
+                    
+                    db_unit = p.get("unit", "")
+                    if not db_unit:
+                        for attr_name, mapping in PROPERTY_MAPPING.items():
+                            if mapping["property_id"].lower() == p["property_id"].lower():
+                                p["unit"] = mapping.get("unit", "")
+                                break
+                    prop_map[log_id].append(p)
+                
+                for r in results:
+                    log_id = str(r["id"])
+                    r["properties"] = prop_map.get(log_id, [])
+            
+            return results
+        except Exception as e:
+            logger.error("Failed to get all sensor logs: %s", e)
+            raise
+
     def delete_old_logs(self, days: int = 30) -> int:
         try:
             cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
@@ -480,3 +527,14 @@ class SensorLogRepo:
         except Exception as e:
             logger.error("Failed to delete old sensor logs: %s", e)
             raise
+
+    def check_exists(self, did: str, timestamp: str) -> bool:
+        try:
+            results = execute_query(
+                "SELECT id FROM sensor_logs WHERE did = ? AND timestamp = ? LIMIT 1",
+                (did, timestamp),
+            )
+            return len(results) > 0
+        except Exception as e:
+            logger.error("Failed to check sensor log existence: %s", e)
+            return False

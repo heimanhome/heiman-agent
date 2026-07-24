@@ -6,22 +6,75 @@ from typing import Dict, Optional, Any, List
 logger = logging.getLogger(__name__)
 
 
-def _record_token_usage(model: str, usage: dict, usage_type: str = "api") -> None:
+def _estimate_tokens(text: str) -> int:
+    """粗略估算文本的 token 数：英文 ~4 字符/token，中文 ~1.5 字符/token"""
+    if not text:
+        return 0
+    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    other_chars = len(text) - chinese_chars
+    return int(chinese_chars / 1.5 + other_chars / 4)
+
+
+def _record_token_usage(model: str, usage: dict, usage_type: str = "edge",
+                         prompt_text: str = "", response_text: str = "") -> None:
     try:
         from heiman.database.token_usage_repo import get_token_usage_repo
         repo = get_token_usage_repo()
-        prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
-        if prompt_tokens > 0 or completion_tokens > 0:
-            repo.record_usage(
-                model=model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                usage_type=usage_type,
-            )
-            logger.debug(f"[TOKEN] Recorded usage: model={model}, prompt={prompt_tokens}, completion={completion_tokens}")
+        # Ollama 原生 API 返回 prompt_eval_count/eval_count，OpenAI 兼容端点返回 prompt_tokens/completion_tokens
+        prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", usage.get("prompt_eval_count", 0)))
+        completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", usage.get("eval_count", 0)))
+
+        # 兜底：如果 API 没返回 token 数，用文本长度估算
+        if prompt_tokens <= 0 and prompt_text:
+            prompt_tokens = _estimate_tokens(prompt_text)
+            logger.debug(f"[TOKEN] Estimated edge prompt tokens: {prompt_tokens}")
+        if completion_tokens <= 0 and response_text:
+            completion_tokens = _estimate_tokens(response_text)
+            logger.debug(f"[TOKEN] Estimated edge completion tokens: {completion_tokens}")
+
+        # 始终记录
+        repo.record_usage(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            usage_type=usage_type,
+        )
+        logger.info(
+            "[TOKEN] Recorded edge usage: model=%s, prompt=%d, completion=%d",
+            model, prompt_tokens, completion_tokens,
+        )
     except Exception as e:
-        logger.warning(f"[TOKEN] Failed to record token usage: {e}")
+        logger.warning(f"[TOKEN] Failed to record edge token usage: {e}")
+
+
+def _check_token_quota(model: str = "", usage_type: str = "edge", estimated_tokens: int = 1000) -> bool:
+    try:
+        from heiman.database.token_usage_repo import get_token_usage_repo
+        repo = get_token_usage_repo()
+        quota_status = repo.check_quota(model, usage_type, estimated_tokens)
+
+        if quota_status["will_exceed"]:
+            logger.warning(
+                "[TOKEN] Edge inference quota exceeded: model=%s, usage=%d/%d",
+                model,
+                quota_status["daily_usage"],
+                quota_status["daily_limit"],
+            )
+            return False
+
+        if quota_status["at_warning"]:
+            logger.warning(
+                "[TOKEN] Edge inference quota warning: model=%s, usage=%d/%d (%.1f%%)",
+                model,
+                quota_status["daily_usage"],
+                quota_status["daily_limit"],
+                (quota_status["daily_usage"] / quota_status["daily_limit"]) * 100,
+            )
+
+        return True
+    except Exception as e:
+        logger.warning(f"[TOKEN] Failed to check edge inference quota: {e}")
+        return True
 
 
 class EdgeInferenceEngine:
@@ -135,6 +188,11 @@ class EdgeInferenceEngine:
         if not model_info:
             return {"error": f"Model {model_id} not found"}
 
+        model_name = model_info.get("model", model_id)
+        if not _check_token_quota(model_name, usage_type="edge"):
+            logger.warning("[EDGE] Token quota exceeded for model: %s", model_name)
+            return {"success": False, "error": "Token quota exceeded"}
+
         provider = model_info["provider"]
         params = params or {}
 
@@ -148,38 +206,67 @@ class EdgeInferenceEngine:
         return {"error": f"Unknown provider: {provider}"}
 
     async def _infer_ollama(self, model_info: Dict, prompt: str, params: Dict) -> Dict[str, Any]:
+        """使用 OpenAI 兼容 API 调用 Ollama（标准 /v1/chat/completions 端点）"""
         try:
-            import httpx
+            from openai import AsyncOpenAI
+
+            from heiman.ai.llm_semaphore import get_ai_semaphore
 
             model_name = model_info["model"]
-            base_url = params.get("base_url", "http://localhost:11434")
+            base_url = params.get("base_url", "http://localhost:11434/v1")
 
-            body = {
-                "model": model_name,
-                "prompt": prompt,
-                "max_tokens": params.get("max_tokens", 512),
-                "temperature": params.get("temperature", 0.7),
-                "top_p": params.get("top_p", 0.9),
-                "stream": False,
-            }
+            # 确保 base_url 以 /v1 结尾（OpenAI 兼容端点）
+            base_url = base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
 
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.post(
-                    f"{base_url}/api/generate",
-                    json=body,
+            client = AsyncOpenAI(
+                api_key="ollama",
+                base_url=base_url,
+            )
+
+            messages = [{"role": "user", "content": prompt}]
+            max_tokens = params.get("max_tokens", 512)
+            temperature = params.get("temperature", 0.7)
+
+            sem = get_ai_semaphore()
+            async with sem:
+                response = await client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
                 )
-                response.raise_for_status()
-                result = response.json()
 
-            usage = result.get("usage", {})
-            if usage:
-                _record_token_usage(model_name, usage)
+            response_text = response.choices[0].message.content.strip() if response.choices else ""
+
+            # 提取 usage 信息
+            usage = {}
+            if hasattr(response, 'usage') and response.usage:
+                usage = {
+                    "prompt_tokens": getattr(response.usage, 'prompt_tokens', 0) or 0,
+                    "completion_tokens": getattr(response.usage, 'completion_tokens', 0) or 0,
+                    "total_tokens": getattr(response.usage, 'total_tokens', 0) or 0,
+                }
+
+            logger.info(
+                "[EDGE] Ollama usage: model=%s, prompt=%d, completion=%d, total=%d",
+                model_name,
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0),
+                usage.get("total_tokens", 0),
+            )
+
+            _record_token_usage(model_name, usage, prompt_text=prompt, response_text=response_text)
 
             return {
                 "success": True,
-                "response": result.get("response", ""),
+                "response": response_text,
                 "usage": usage,
             }
+        except ImportError:
+            logger.warning("openai package not installed, edge inference unavailable")
+            return {"success": False, "error": "openai package not installed"}
         except Exception as e:
             logger.error(f"Ollama inference failed: {e}")
             return {"success": False, "error": str(e)}

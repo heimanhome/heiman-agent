@@ -62,7 +62,8 @@ class SensorCollector(BaseCollector):
         try:
             from heiman.manager import get_manager
             mgr = get_manager()
-            sensors = mgr.sensor_repo.get_all()
+            # 使用已有的 query 方法获取最近10条传感器日志
+            sensors = mgr.sensor_log_repo.query(limit=10)
             if sensors:
                 return {
                     "type": "sensor_data",

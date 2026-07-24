@@ -160,6 +160,18 @@ class Manager:
             self._adapter.update_from_mqtt(device_id, properties, topic)
             logger.debug("[Manager] Updated sensor data for %s", device_id)
 
+            # 实时触发 V2 ML 模型推理（异步，不阻塞 MQTT 回调）
+            try:
+                import asyncio
+                async def run_realtime_ai():
+                    await self._realtime_ai_inference(device_id, properties)
+                if hasattr(self, "_event_loop"):
+                    self._event_loop.call_soon_threadsafe(
+                        asyncio.create_task, run_realtime_ai()
+                    )
+            except Exception as e:
+                logger.debug("[Manager] Realtime AI inference skipped: %s", e)
+
             try:
                 from heiman.service.event_bus import get_event_bus
 
@@ -186,6 +198,42 @@ class Manager:
                 logger.warning("[Manager] Failed to publish device update to event bus: %s", e)
         except Exception as e:
             logger.error("[Manager] Error handling MQTT device update: %s", e)
+
+    async def _realtime_ai_inference(self, device_id: str, properties: dict):
+        """对单条传感器数据运行 V2 ML 模型推理"""
+        try:
+            from heiman.ai.anomaly_detector_v2 import get_anomaly_detector_v2
+            from heiman.ai.comfort_evaluator_v2 import get_comfort_evaluator_v2
+
+            detector = get_anomaly_detector_v2()
+            comfort = get_comfort_evaluator_v2()
+
+            # 构造设备数据字典
+            device_data = {
+                "id": device_id,
+                "type": properties.get("type", "unknown"),
+                **{k: v for k, v in properties.items() if k not in ("type",)},
+            }
+
+            # 1. 异常检测
+            anomaly = detector.detect(device_data)
+            if anomaly and anomaly.is_anomaly:
+                logger.info(
+                    "[Manager] Realtime anomaly: device=%s type=%s score=%.3f",
+                    device_id, anomaly.anomaly_type, anomaly.score,
+                )
+
+            # 2. 舒适度评估（仅环境传感器）
+            has_env = any(k in properties for k in ("temperature", "humidity", "co2", "pm25", "hcho"))
+            if has_env:
+                comfort_result = comfort.evaluate_device(device_data)
+                if comfort_result:
+                    logger.info(
+                        "[Manager] Realtime comfort: device=%s level=%s score=%.1f",
+                        device_id, comfort_result.level, comfort_result.score,
+                    )
+        except Exception as e:
+            logger.debug("[Manager] Realtime AI inference error (non-critical): %s", e)
 
     def _on_mqtt_event(self, device_id: str, event_type: str, payload: dict, topic: str = ""):
         try:
@@ -433,6 +481,28 @@ class Manager:
     @property
     def task_service(self) -> TaskService:
         return self._task_service
+
+    async def send_device_command(self, device_id: str, command: str) -> bool:
+        try:
+            from heiman.mqtt_service import get_mqtt_service
+
+            mqtt_service = get_mqtt_service()
+
+            if command == "turn_on":
+                properties = {"SwitchState": 1}
+            elif command == "turn_off":
+                properties = {"SwitchState": 0}
+            else:
+                logger.warning("Unknown command: %s", command)
+                return False
+
+            await mqtt_service.write_device_property("11", device_id, properties)
+            logger.info("[Manager] Sent command '%s' to device %s", command, device_id)
+            return True
+
+        except Exception as e:
+            logger.error("[Manager] Failed to send command to device %s: %s", device_id, e)
+            return False
 
 
 _manager_instance: Manager | None = None

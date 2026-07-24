@@ -1,15 +1,34 @@
+import asyncio
 import json
 import logging
 import re
 import threading
 import uuid
-from datetime import datetime
-from typing import Dict, Optional, Tuple, Any
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Tuple, Any, List
 
 from heiman.database.event_repo import get_event_repo
 from heiman.schema.sensor import SensorEvent, SensorEventType, SensorEventLevel
 
 logger = logging.getLogger(__name__)
+
+# 所有告警类型都应触发 LLM 深度分析
+CRITICAL_EVENT_TYPES = {
+    "smoke_alarm",
+    "co_alarm",
+    "water_leak",
+    "switch_alarm",
+    "contact_alarm",
+    "tamper_alarm",
+    "siren_alarm",
+    "button_alarm",
+    "plug_alarm",
+    "remote_alarm",
+    "motion_alarm",
+    "device_offline",
+    "tamper_alarm",
+    "switch_alarm",
+}
 
 DEVICE_EVENT_TOPIC_PATTERN = re.compile(
     r'^/iot/app/11/[^/]+/([^/]+)/([^/]+)/event/([^/]+)$'
@@ -64,10 +83,14 @@ class ParsedEvent:
     is_child_device: bool
     device_name: Optional[str]
     sensor_type: Optional[str]
+    gw_product_id: Optional[str]
+    gw_device_id: Optional[str]
 
     def __init__(self, product_id: str, device_id: str, event_id: str,
                  payload: dict, timestamp: datetime,
-                 child_device_id: Optional[str] = None):
+                 child_device_id: Optional[str] = None,
+                 gw_product_id: Optional[str] = None,
+                 gw_device_id: Optional[str] = None):
         self.product_id = product_id
         self.device_id = device_id
         self.child_device_id = child_device_id
@@ -77,6 +100,8 @@ class ParsedEvent:
         self.is_child_device = child_device_id is not None
         self.device_name = None
         self.sensor_type = None
+        self.gw_product_id = gw_product_id
+        self.gw_device_id = gw_device_id
 
 
 class EventProcessor:
@@ -106,6 +131,14 @@ class EventProcessor:
         if child_match:
             device_id = child_match.group(1)
             event_id = child_match.group(2)
+            
+            parts = topic.strip('/').split('/')
+            gw_product_id = None
+            gw_device_id = None
+            if len(parts) >= 6:
+                gw_product_id = parts[4]
+                gw_device_id = parts[5]
+            
             return ParsedEvent(
                 product_id="",
                 device_id=device_id,
@@ -113,6 +146,8 @@ class EventProcessor:
                 event_id=event_id,
                 payload={},
                 timestamp=datetime.now(),
+                gw_product_id=gw_product_id,
+                gw_device_id=gw_device_id,
             )
 
         device_match = DEVICE_EVENT_TOPIC_PATTERN.match(topic)
@@ -224,17 +259,52 @@ class EventProcessor:
                     
                     cursor = db.get_connection().cursor()
                     cursor.execute(
-                        "SELECT name FROM sensor_logs WHERE did = ? AND name IS NOT NULL AND name != '' AND name != did ORDER BY id DESC LIMIT 1",
+                        "SELECT sensor_type, raw_properties FROM sensor_logs WHERE did = ? AND (sensor_type IS NOT NULL OR raw_properties IS NOT NULL) ORDER BY id DESC LIMIT 1",
                         (target_did,)
                     )
                     row = cursor.fetchone()
-                    if row and row[0]:
-                        parsed.device_name = row[0]
-                    else:
+                    if row:
+                        db_sensor_type = row[0] if row[0] else None
+                        raw_props_str = row[1] if row[1] else None
+                        
+                        if db_sensor_type and db_sensor_type != "" and not parsed.sensor_type:
+                            parsed.sensor_type = db_sensor_type
+                            logger.info("[EventProcessor] _resolve_device_info - sensor_type from sensor_logs: %s", db_sensor_type)
+                        
+                        if raw_props_str:
+                            try:
+                                import json
+                                raw_props = json.loads(raw_props_str)
+                                if isinstance(raw_props, dict):
+                                    if not parsed.sensor_type:
+                                        sensor_type_val = raw_props.get("sensor_type", raw_props.get("sensorType", ""))
+                                        if sensor_type_val:
+                                            parsed.sensor_type = str(sensor_type_val)
+                                            logger.info("[EventProcessor] _resolve_device_info - sensor_type from raw_properties: %s", parsed.sensor_type)
+                                    props_name = raw_props.get("name", raw_props.get("deviceName", ""))
+                                    if props_name and props_name != target_did and not props_name.startswith("Device "):
+                                        parsed.device_name = props_name
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                    
+                    if not parsed.device_name or parsed.device_name == target_did or parsed.device_name.startswith("Device "):
                         if parsed.product_id and parsed.product_id != "heiman":
                             product_info = repo.get_product(parsed.product_id)
                             if product_info:
                                 parsed.device_name = product_info.get("name", target_did)
+                        elif parsed.sensor_type:
+                            sensor_type_names = {
+                                "plug": "智能插座",
+                                "contact": "门磁探测器",
+                                "motion": "移动探测器",
+                                "smoke": "烟雾探测器",
+                                "co": "一氧化碳探测器",
+                                "water": "水浸探测器",
+                                "temperature": "温度传感器",
+                                "humidity": "湿度传感器",
+                                "siren": "声光报警器",
+                            }
+                            parsed.device_name = sensor_type_names.get(parsed.sensor_type, f"Device {target_did[:8]}")
                 except Exception as e:
                     logger.debug("[EventProcessor] Failed to get device name from database: %s", e)
             logger.info("[EventProcessor] _resolve_device_info - product_id after: %s", parsed.product_id)
@@ -257,7 +327,15 @@ class EventProcessor:
             is_contact = False
             is_plug = False
             
-            if parsed.product_id:
+            if "contact" in sensor_type.lower():
+                is_contact = True
+            elif "plug" in sensor_type.lower():
+                is_plug = True
+            elif "门磁" in device_name or "门窗" in device_name:
+                is_contact = True
+            elif "插座" in device_name:
+                is_plug = True
+            elif parsed.product_id:
                 try:
                     from heiman.database.connector import get_db_connector
                     from heiman.database.product_repo import ProductRepo
@@ -272,16 +350,6 @@ class EventProcessor:
                             is_plug = True
                 except Exception as e:
                     logger.debug("[EventProcessor] Failed to get product info: %s", e)
-            
-            if not is_contact and not is_plug:
-                if "门磁" in device_name or "门窗" in device_name:
-                    is_contact = True
-                elif "插座" in device_name:
-                    is_plug = True
-                elif "contact" in sensor_type.lower():
-                    is_contact = True
-                elif "plug" in sensor_type.lower():
-                    is_plug = True
             
             if is_contact:
                 if switch_state == 3 or switch_state == 1:
@@ -381,6 +449,10 @@ class EventProcessor:
                             from heiman.database.product_repo import ProductRepo
                             db = get_db_connector()
                             repo = ProductRepo(db)
+                            
+                            valid_product_id = None
+                            fallback_product_id = None
+                            
                             with db.get_connection() as conn:
                                 cursor = conn.cursor()
                                 cursor.execute(
@@ -389,7 +461,6 @@ class EventProcessor:
                                 )
                                 rows = cursor.fetchall()
                                 
-                                fallback_product_id = None
                                 for row in rows:
                                     pid = str(row[0])
                                     if pid:
@@ -400,13 +471,19 @@ class EventProcessor:
                                             classified_name = product_info.get("classified_name", "")
                                             product_name = product_info.get("name", "")
                                             if "网关" not in classified_name and "网关" not in product_name:
-                                                product_id = pid
-                                                logger.info("[EventProcessor] Resolved product_id from sensor_logs (non-gateway): %s", product_id)
+                                                valid_product_id = pid
+                                                logger.info("[EventProcessor] Resolved product_id from sensor_logs (non-gateway): %s", valid_product_id)
                                                 break
-                                
-                                if not product_id and fallback_product_id:
+                            
+                            if valid_product_id:
+                                product_id = valid_product_id
+                            elif fallback_product_id:
+                                product_info = repo.get_product(fallback_product_id)
+                                if product_info:
                                     product_id = fallback_product_id
                                     logger.info("[EventProcessor] Resolved product_id from sensor_logs (fallback): %s", product_id)
+                                else:
+                                    logger.info("[EventProcessor] product_id %s not found in dev_product, will use sensor_type for device classification", fallback_product_id)
                         except Exception as e:
                             logger.error("[EventProcessor] Failed to resolve product_id from sensor_logs: %s", e)
                 parsed.product_id = product_id
@@ -428,6 +505,9 @@ class EventProcessor:
                     sensor_event.level.value,
                     parsed.is_child_device,
                 )
+
+                self._trigger_ai_analysis(sensor_event, parsed.device_id)
+
                 return True
 
             except Exception as e:
@@ -463,6 +543,347 @@ class EventProcessor:
             logger.debug("[EventProcessor] Event published to event bus: %s", event.event_id)
         except Exception as e:
             logger.warning("[EventProcessor] Failed to publish to event bus: %s", e)
+
+    def _trigger_ai_analysis(self, sensor_event: SensorEvent, device_id: str) -> None:
+        event_type = sensor_event.event_type.value
+
+        if event_type in CRITICAL_EVENT_TYPES or sensor_event.level == SensorEventLevel.CRITICAL:
+            logger.info(
+                "[EventProcessor] Critical event detected - triggering AI analysis: %s",
+                event_type,
+            )
+            asyncio.create_task(self._execute_ai_analysis(sensor_event, device_id))
+
+        asyncio.create_task(self._process_behavior_learning(sensor_event))
+
+    async def _process_behavior_learning(self, sensor_event: SensorEvent) -> None:
+        try:
+            from heiman.ai.smart_rule_generator import SmartRuleGenerator
+
+            generator = SmartRuleGenerator()
+
+            event_for_learning = {
+                "user_id": "default",
+                "type": sensor_event.event_type.value,
+                "timestamp": sensor_event.timestamp.timestamp(),
+                "did": sensor_event.did,
+                "device_name": sensor_event.device_name,
+                "level": sensor_event.level.value,
+                "description": sensor_event.description,
+            }
+
+            await generator.process_event_for_learning(event_for_learning)
+            logger.debug("[EventProcessor] Behavior learning processed for event: %s", sensor_event.event_type.value)
+
+        except Exception as e:
+            logger.warning("[EventProcessor] Failed to process behavior learning: %s", e)
+
+    async def _execute_ai_analysis(self, sensor_event: SensorEvent, device_id: str) -> None:
+        try:
+            from heiman.ai.anomaly_detector_v2 import get_anomaly_detector_v2
+            from heiman.ai.decision_engine_v2 import get_decision_engine_v2
+            from heiman.ai.comfort_evaluator_v2 import get_comfort_evaluator_v2
+            from heiman.ai.behavior_recognizer_v2 import get_behavior_recognizer_v2
+            from heiman.database.connector import get_db_connector
+
+            logger.info("[EventProcessor] Executing V2 AI analysis for device: %s", device_id)
+
+            anomaly_detector = get_anomaly_detector_v2()
+            decision_engine = get_decision_engine_v2()
+            comfort_evaluator = get_comfort_evaluator_v2()
+            behavior_recognizer = get_behavior_recognizer_v2()
+
+            all_devices = await self._get_all_devices_for_analysis()
+            if not all_devices:
+                logger.warning("[EventProcessor] No devices available for AI analysis")
+                return
+
+            anomalies = anomaly_detector.detect_batch(all_devices)
+
+            analysis_result = await decision_engine.analyze_home_fused()
+            if analysis_result is None:
+                analysis_result = {"decision": "no_action", "confidence": 0, "reasoning": "no_ml_model_loaded"}
+            await self._store_ai_analysis_result(analysis_result)
+
+            if anomalies:
+                logger.info("[EventProcessor] AI analysis detected %d anomalies", len(anomalies))
+                for anomaly in anomalies:
+                    logger.info(
+                        "[EventProcessor] Anomaly detected: type=%s, severity=%s, message=%s",
+                        anomaly.anomaly_type.value,
+                        anomaly.severity,
+                        anomaly.message,
+                    )
+
+            # --- 告警事件规则引擎分析（ML 分析之后） ---
+            if sensor_event.event_type.value in CRITICAL_EVENT_TYPES:
+                await self._execute_alert_analysis(
+                    sensor_event=sensor_event,
+                    analysis_result=analysis_result,
+                    anomalies=anomalies,
+                    all_devices=all_devices,
+                )
+
+            logger.info("[EventProcessor] AI analysis completed successfully")
+
+        except Exception as e:
+            logger.error(
+                "[EventProcessor] Error executing AI analysis: %s",
+                e,
+                exc_info=True,
+            )
+
+    async def _execute_alert_analysis(
+        self,
+        sensor_event: SensorEvent,
+        analysis_result: Dict[str, Any],
+        anomalies: List[Any],
+        all_devices: List[Dict[str, Any]],
+    ) -> None:
+        """在 ML 分析之后，对关键告警执行规则引擎深度分析。"""
+        try:
+            from heiman.ai.alert_analyzer import AlertContext, get_alert_analyzer, init_alert_analyzer
+            from heiman.database.connector import get_db_connector
+            from heiman.manager import get_manager
+
+            # 确保 AlertAnalyzer 已初始化
+            try:
+                analyzer = get_alert_analyzer()
+            except RuntimeError:
+                db = get_db_connector()
+                mgr = get_manager()
+                analyzer = init_alert_analyzer(db=db)
+
+            # 获取设备详细信息
+            mgr = get_manager()
+            device = mgr.adapter.get_connected_devices().get(sensor_event.did)
+
+            # 构建历史事件上下文
+            event_repo = self._event_repo
+            twenty_four_hours_ago = (datetime.now() - timedelta(hours=24)).isoformat()
+
+            # 查询同设备的历史事件
+            recent_events = event_repo.query(
+                did=sensor_event.did,
+                after=twenty_four_hours_ago,
+                limit=20,
+            )
+
+            # 查询系统日志（最近 20 条）
+            system_logs: List[Dict[str, Any]] = []
+            try:
+                db = get_db_connector()
+                with db.get_connection() as conn:
+                    # 确保行以 dict 方式返回
+                    conn.row_factory = type(conn).row_factory
+                    log_rows = conn.execute(
+                        "SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20"
+                    ).fetchall()
+                    system_logs = [dict(r) for r in log_rows]
+            except Exception:
+                pass  # 系统日志表可能不存在
+
+            # 查询最近传感器读数
+            recent_readings: List[Dict[str, Any]] = []
+            try:
+                db = get_db_connector()
+                with db.get_connection() as conn:
+                    reading_rows = conn.execute(
+                        "SELECT * FROM sensor_logs WHERE did = ? ORDER BY timestamp DESC LIMIT 10",
+                        (sensor_event.did,),
+                    ).fetchall()
+                    recent_readings = [dict(r) for r in reading_rows]
+            except Exception:
+                pass
+
+            # 收集当前传感器指标
+            current_values: Dict[str, Any] = {}
+            if device:
+                current_values = {
+                    "temperature": getattr(device, "temperature", None),
+                    "humidity": getattr(device, "humidity", None),
+                    "smoke_ppm": getattr(device, "smoke_ppm", None),
+                    "co_ppm": getattr(device, "co_ppm", None),
+                    "battery": getattr(device, "battery", None),
+                    "signal_strength": getattr(device, "signal_strength", None),
+                }
+                current_values = {k: v for k, v in current_values.items() if v is not None}
+
+            # 设备配置
+            device_config: Dict[str, Any] = {}
+            if device:
+                device_config = {
+                    "model": getattr(device, "model", ""),
+                    "firmware": getattr(device, "firmware", ""),
+                    "sensor_type": getattr(device, "device_type", ""),
+                    "thresholds": getattr(device, "thresholds", {}),
+                    "capabilities": getattr(device, "capabilities", []),
+                }
+
+            # 关联设备（同房间）
+            room = getattr(device, "room", "") if device else sensor_event.room_name
+            related_devices = [
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", ""),
+                    "type": d.get("type", ""),
+                    "status": d.get("status", ""),
+                }
+                for d in all_devices
+                if d.get("room") == room and d.get("id") != sensor_event.did
+            ]
+
+            # 提取 ML 分析结果
+            anomalies_data = []
+            for a in anomalies:
+                anomalies_data.append({
+                    "type": getattr(a, "anomaly_type", ""),
+                    "severity": getattr(a, "severity", ""),
+                    "message": getattr(a, "message", ""),
+                    "score": getattr(a, "score", 0),
+                } if hasattr(a, "anomaly_type") else str(a))
+
+            comfort = analysis_result.get("comfort", {})
+            comfort_score = comfort.get("score", 0) if isinstance(comfort, dict) else 0
+            behavior = analysis_result.get("behavior", {})
+            behavior_data = {
+                "activity": behavior.get("activity", "") if isinstance(behavior, dict) else "",
+                "confidence": behavior.get("confidence", 0) if isinstance(behavior, dict) else 0,
+            } if isinstance(behavior, dict) else {}
+
+            # 构建上下文
+            context = AlertContext(
+                event_id=sensor_event.event_id,
+                event_type=sensor_event.event_type.value,
+                device_id=sensor_event.did,
+                device_name=sensor_event.device_name or f"Device_{sensor_event.did[:8]}",
+                device_type=getattr(device, "device_type", "") if device else "",
+                room_name=sensor_event.room_name or room or "",
+                home_id=sensor_event.home_id or "",
+                current_values=current_values,
+                historical_events_count=len(recent_events),
+                recent_events=[dict(r) for r in recent_events[:10]],
+                recent_readings=recent_readings[:10],
+                device_config=device_config,
+                related_devices=related_devices,
+                anomaly_score=analysis_result.get("anomaly_score", 0.0),
+                anomalies=anomalies_data,
+                comfort_score=comfort_score,
+                behavior_analysis=behavior_data,
+                system_logs=system_logs[:5],
+                timestamp_ms=int(sensor_event.timestamp.timestamp() * 1000) if sensor_event.timestamp else 0,
+                timestamp_iso=sensor_event.timestamp.isoformat() if sensor_event.timestamp else datetime.now().isoformat(),
+            )
+
+            logger.info(
+                "[EventProcessor] Triggering rule-engine alert analysis | event=%s type=%s device=%s",
+                context.event_id, context.event_type, context.device_name,
+            )
+
+            # 执行规则引擎分析（纯本地计算，不调用 LLM）
+            result = await analyzer.analyze(context, store=True)
+
+            if result.success:
+                logger.info(
+                    "[EventProcessor] Alert analysis complete | event=%s urgency=%s remediation_steps=%d",
+                    context.event_id, result.urgency_level, len(result.remediation_steps),
+                )
+            else:
+                logger.error(
+                    "[EventProcessor] Alert analysis failed | event=%s error=%s",
+                    context.event_id, result.error_message,
+                )
+
+        except Exception as e:
+            logger.error(
+                "[EventProcessor] Alert analysis error | event=%s error=%s",
+                getattr(sensor_event, "event_id", "unknown"), e, exc_info=True,
+            )
+
+    async def _get_all_devices_for_analysis(self) -> list:
+        try:
+            from heiman.manager import get_manager
+
+            mgr = get_manager()
+            perception_devices = mgr.adapter.get_connected_devices()
+
+            result = []
+            for did, device in perception_devices.items():
+                device_data = {
+                    "id": did,
+                    "name": device.name,
+                    "type": device.device_type.value if hasattr(device.device_type, 'value') else str(device.device_type),
+                    "status": "online" if device.online else "offline",
+                    "battery": None,
+                    "room": device.room_name or "",
+                    "lastUpdate": datetime.now().isoformat(),
+                }
+                # 从 sensor_data_cache 获取传感器实时读数
+                try:
+                    dev_data = mgr.adapter.collect(did, drain=False)
+                    if dev_data and dev_data.sensor_data:
+                        sd = dev_data.sensor_data
+                        device_data["temperature"] = sd.temperature
+                        device_data["humidity"] = sd.humidity
+                        device_data["co2"] = sd.co2
+                        device_data["pm25"] = sd.pm25
+                        device_data["switchState"] = sd.switchState
+                        device_data["motionState"] = sd.motionState
+                        device_data["smokeState"] = sd.smokeState
+                        device_data["gasState"] = sd.gasState
+                        device_data["waterState"] = sd.waterState
+                        device_data["contactState"] = sd.contactState
+                        device_data["alarmState"] = sd.alarmState
+                        device_data["battery"] = sd.battery
+                        if dev_data.timestamp:
+                            device_data["lastUpdate"] = dev_data.timestamp.isoformat()
+                except Exception:
+                    pass
+                result.append(device_data)
+
+            return result
+        except Exception as e:
+            logger.error("[EventProcessor] Error getting devices for analysis: %s", e)
+            return []
+
+    async def _store_ai_analysis_result(self, analysis_result: dict) -> None:
+        try:
+            from heiman.database.connector import get_db_connector
+
+            db = get_db_connector()
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                anomalies = analysis_result.get("anomalies", [])
+                anomaly_count = len(anomalies) if isinstance(anomalies, list) else 0
+                
+                comfort = analysis_result.get("comfort", {})
+                comfort_score = comfort.get("score", 0) if isinstance(comfort, dict) else 0
+                
+                activity = analysis_result.get("activity", {})
+                activity_type = activity.get("activity", "") if isinstance(activity, dict) else ""
+                
+                cursor.execute(
+                    """
+                    INSERT INTO ai_analysis_results (
+                        analysis_id, analysis_type, result_data, timestamp_ms,
+                        anomaly_count, comfort_score, activity_type, home_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        analysis_result.get("type", "comprehensive"),
+                        json.dumps(analysis_result),
+                        int(datetime.now().timestamp() * 1000),
+                        anomaly_count,
+                        comfort_score,
+                        activity_type,
+                        analysis_result.get("home_id", ""),
+                    ),
+                )
+                conn.commit()
+            logger.info("[EventProcessor] AI analysis result stored")
+        except Exception as e:
+            logger.warning("[EventProcessor] Failed to store AI analysis result: %s", e)
 
     @property
     def stats(self) -> Dict[str, int]:

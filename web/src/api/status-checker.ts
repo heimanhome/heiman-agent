@@ -50,8 +50,6 @@ export interface StatusCheckResult {
 
 export interface AuthCheckResult {
   isAuthenticated: boolean;
-  tokenExpired: boolean;
-  tokenSource: string | null;
   profile: UserProfile | null;
   userId: string | null;
 }
@@ -126,13 +124,10 @@ export class StatusChecker {
   }
 
   public async checkAuth(): Promise<AuthCheckResult> {
-    const token = authManager.getToken();
     const profile = authManager.getProfile();
     
     const result: AuthCheckResult = {
       isAuthenticated: authManager.isAuthenticated(),
-      tokenExpired: token ? authManager.isTokenExpired(token) : true,
-      tokenSource: localStorage.getItem('heiman_token_source'),
       profile,
       userId: profile?.userId || null,
     };
@@ -296,8 +291,6 @@ export class StatusChecker {
       timestamp: new Date().toISOString(),
       auth: {
         isAuthenticated: authManager.isAuthenticated(),
-        tokenSource: localStorage.getItem('heiman_token_source'),
-        tokenExpired: authManager.getToken() ? authManager.isTokenExpired(authManager.getToken()!) : true,
       },
       apiRequests: Array.from(this.apiRequests.entries()).map(([key, value]) => ({
         name: key,

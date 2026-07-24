@@ -10,7 +10,9 @@
     "edit": "Edit",
     "add": "Add",
     "save": "Save",
-    "close": "Close"
+    "close": "Close",
+    "prev": "Prev",
+    "next": "Next"
   },
   "theme": {
     "toLight": "Switch to light mode",

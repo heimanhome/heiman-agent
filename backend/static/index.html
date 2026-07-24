@@ -5,18 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Heiman Agent</title>
-    <script>
-      // 服务端注入的 token 处理
-      // 服务端会将 __HEIMAN_INJECT_TOKEN_HERE__ 替换为实际的 server.token
-      window.__HEIMAN_TOKEN__ = "__HEIMAN_INJECT_TOKEN_HERE__";
-      if (window.__HEIMAN_TOKEN__ && window.__HEIMAN_TOKEN__ !== "__HEIMAN_INJECT_TOKEN_HERE__") {
-        localStorage.setItem('heiman_access_token', window.__HEIMAN_TOKEN__);
-        localStorage.setItem('heiman_token_source', 'server_injected');
-        console.log('Token injected from server:', window.__HEIMAN_TOKEN__);
-      }
-    </script>
-    <script type="module" crossorigin src="/assets/main-B0AkqwZB.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/main-CklExvoL.css">
+    <script type="module" crossorigin src="/assets/main-OWhsNo05.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/main-DPbOAQ7f.css">
   </head>
   <body>
     <div id="root"></div>

@@ -581,28 +581,58 @@ async def get_device(device_id: str, home_id: Optional[str] = Query(None)):
         mgr = get_manager()
 
         if mgr.api_client.is_authenticated:
-            sensor_data_list = await mgr.api_client.get_sensor_data(home_id=home_id)
-            sensor_data = next((s for s in sensor_data_list if s.did == device_id), None)
+            devices = await mgr.api_client.get_all_devices(home_id)
+            device = next((d for d in devices if str(d.get("id", d.get("deviceId", ""))) == device_id), None)
             
-            if not sensor_data:
-                raise HTTPException(status_code=404, detail="Device not found")
+            if not device:
+                sensor_data_list = await mgr.api_client.get_sensor_data(home_id=home_id)
+                sensor_data = next((s for s in sensor_data_list if s.did == device_id), None)
+                
+                if not sensor_data:
+                    raise HTTPException(status_code=404, detail="Device not found")
+                
+                device_type = SENSOR_TYPE_MAP.get(sensor_data.sensor_type, "unknown")
+                device_status = "online" if sensor_data.status != "offline" else "offline"
+                
+                return {
+                    "success": True,
+                    "data": {
+                        "id": sensor_data.did,
+                        "name": sensor_data.name,
+                        "type": device_type,
+                        "status": device_status,
+                        "value": sensor_data.value,
+                        "unit": sensor_data.unit or UNIT_MAP.get(sensor_data.sensor_type, ""),
+                        "room": sensor_data.room_name or "Unknown",
+                        "battery": 100,
+                        "lastUpdate": sensor_data.timestamp.isoformat() if sensor_data.timestamp else "Just now",
+                        "home_id": sensor_data.home_id,
+                        "productId": "",
+                        "productName": "",
+                        "deriveMetadata": [],
+                    },
+                }
             
-            device_type = SENSOR_TYPE_MAP.get(sensor_data.sensor_type, "unknown")
-            device_status = "online" if sensor_data.status != "offline" else "offline"
+            device_type = device.get("type", "unknown")
+            device_status = device.get("status", "offline")
             
             return {
                 "success": True,
                 "data": {
-                    "id": sensor_data.did,
-                    "name": sensor_data.name,
+                    "id": device.get("id", device.get("deviceId", device_id)),
+                    "name": device.get("name", device.get("deviceName", "Unknown")),
+                    "deviceName": device.get("name", device.get("deviceName", "Unknown")),
                     "type": device_type,
                     "status": device_status,
-                    "value": sensor_data.value,
-                    "unit": sensor_data.unit or UNIT_MAP.get(sensor_data.sensor_type, ""),
-                    "room": sensor_data.room_name or "Unknown",
-                    "battery": 100,
-                    "lastUpdate": sensor_data.timestamp.isoformat() if sensor_data.timestamp else "Just now",
-                    "home_id": sensor_data.home_id,
+                    "room": device.get("room", ""),
+                    "home_id": device.get("home_id", ""),
+                    "productId": device.get("productId", ""),
+                    "productName": device.get("productName", ""),
+                    "properties": device.get("properties", {}),
+                    "deriveMetadata": device.get("deriveMetadata", []),
+                    "photoUrl": device.get("photoUrl", ""),
+                    "battery": device.get("battery", 100),
+                    "lastUpdate": device.get("lastUpdate", ""),
                 },
             }
         else:
@@ -646,4 +676,87 @@ async def toggle_device(device_id: str):
             return {"success": False, "message": "Failed to toggle device"}
     except Exception as e:
         logger.error("Failed to toggle device %s: %s", device_id, e)
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/{device_id}/control", response_model=dict)
+async def control_device(device_id: str, data: dict):
+    """Generic device property control endpoint for panel plugins."""
+    try:
+        mgr = get_manager()
+
+        property_identifier = data.get("property_identifier")
+        value = data.get("value")
+
+        if not property_identifier:
+            return {"success": False, "message": "property_identifier is required"}
+
+        success = await mgr.api_client.control_device(
+            device_id=device_id,
+            property_identifier=property_identifier,
+            value=value,
+        )
+
+        if success:
+            return {"success": True, "message": "Control command sent successfully"}
+        else:
+            return {"success": False, "message": "Failed to send control command"}
+    except Exception as e:
+        logger.error("Failed to control device %s: %s", device_id, e)
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/{device_id}/panel", response_model=dict)
+async def get_device_panel(device_id: str, home_id: Optional[str] = Query(None)):
+    try:
+        mgr = get_manager()
+
+        if not mgr.api_client.is_authenticated:
+            return {"success": False, "message": "Not authenticated"}
+
+        devices = await mgr.api_client.get_all_devices(home_id)
+        device = next((d for d in devices if str(d.get("id", d.get("deviceId", ""))) == device_id), None)
+
+        if not device:
+            return {"success": False, "message": "Device not found"}
+
+        product_id = str(device.get("productId", ""))
+        if not product_id:
+            return {"success": False, "message": "Device has no productId"}
+
+        panel_info = await mgr.api_client.get_device_panel(product_id)
+
+        if not panel_info or not panel_info.get("panelUrl"):
+            return {"success": False, "message": "No panel available for this device"}
+
+        panel_url = panel_info.get("panelUrl")
+
+        return {
+            "success": True,
+            "data": {
+                "deviceId": device_id,
+                "deviceName": device.get("deviceName", device.get("name", "")),
+                "productId": product_id,
+                "productName": device.get("productName", ""),
+                "panelUrl": panel_url,
+            },
+        }
+    except Exception as e:
+        logger.error("Failed to get device panel for %s: %s", device_id, e)
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/panel/session/close", response_model=dict)
+async def close_panel_session(data: dict):
+    try:
+        mgr = get_manager()
+        session_id = data.get("sessionId")
+        
+        if not session_id:
+            return {"success": False, "message": "sessionId is required"}
+
+        await mgr.api_client.close_panel_session(session_id)
+        return {"success": True, "message": "Session closed successfully"}
+    except Exception as e:
+        logger.error("Failed to close panel session %s: %s", data.get("sessionId"), e)
         return {"success": False, "message": str(e)}

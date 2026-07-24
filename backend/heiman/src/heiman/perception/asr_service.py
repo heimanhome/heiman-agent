@@ -3,6 +3,8 @@ import logging
 import os
 from typing import Dict, Optional, Any, List
 
+from heiman.perception.collector import BaseCollector, CollectorConfig
+
 
 logger = logging.getLogger(__name__)
 

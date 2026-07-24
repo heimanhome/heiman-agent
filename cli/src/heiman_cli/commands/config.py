@@ -20,14 +20,6 @@ from heiman_cli.config import describe, get_value, known_paths, set_values, show
 from heiman_cli.output import print_result
 
 
-def _mask(data: dict) -> dict:
-    masked = json.loads(json.dumps(data))
-    server = masked.get("server") or {}
-    if server.get("token"):
-        server["token"] = "***"
-    return masked
-
-
 @click.group("config")
 def config_group():
     """配置管理：show / get / set / list-paths。"""
@@ -35,12 +27,9 @@ def config_group():
 
 @config_group.command("show")
 @click.option("--pretty", is_flag=True, help="缩进输出")
-@click.option("--unmasked", is_flag=True, help="不对 token 做掩码（调试用）")
-def config_show(pretty: bool, unmasked: bool):
+def config_show(pretty: bool):
     """显示合并后的配置。"""
     data = show_config()
-    if not unmasked:
-        data = _mask(data)
     print_result(data, pretty)
 
 
@@ -53,7 +42,7 @@ def config_show(pretty: bool, unmasked: bool):
     help="仅输出值本身(裸文本, 不含 JSON 包装), 方便脚本无需 JSON 解析器",
 )
 def config_get(path: str, pretty: bool, value_only: bool):
-    """按点号路径取值，如 ``server.url`` / ``server.token``。"""
+    """按点号路径取值，如 ``server.url``。"""
     try:
         value = get_value(path)
     except KeyError:

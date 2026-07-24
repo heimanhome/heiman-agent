@@ -108,25 +108,50 @@ class HeimanLayer:
         return "\n".join(parts)
 
     async def _call_llm(self, prompt: str) -> Dict[str, Any]:
+        """使用 OpenAI 兼容 API 调用 LLM（标准 /v1/chat/completions 端点）"""
         try:
-            import httpx
-            
-            body = {
-                "model": self.config.model,
-                "prompt": prompt,
-                "max_tokens": self.config.max_completion_tokens,
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-                "stream": False,
-            }
-            
-            async with httpx.AsyncClient(timeout=httpx.Timeout(self.config.timeout)) as client:
-                response = await client.post(
-                    f"{self.config.base_url}/api/generate",
-                    json=body,
+            from openai import AsyncOpenAI
+
+            from heiman.ai.llm_semaphore import get_ai_semaphore
+
+            # 确保 base_url 以 /v1 结尾（OpenAI 兼容端点）
+            base_url = self.config.base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+
+            client = AsyncOpenAI(
+                api_key=self.config.api_key or "ollama",
+                base_url=base_url,
+            )
+
+            messages = [{"role": "user", "content": prompt}]
+
+            sem = get_ai_semaphore()
+            async with sem:
+                response = await client.chat.completions.create(
+                    model=self.config.model,
+                    messages=messages,
+                    max_tokens=self.config.max_completion_tokens,
+                    temperature=self.config.temperature,
                 )
-                response.raise_for_status()
-                return response.json()
+
+            response_text = response.choices[0].message.content.strip() if response.choices else ""
+
+            usage = {}
+            if hasattr(response, 'usage') and response.usage:
+                usage = {
+                    "prompt_tokens": getattr(response.usage, 'prompt_tokens', 0) or 0,
+                    "completion_tokens": getattr(response.usage, 'completion_tokens', 0) or 0,
+                    "total_tokens": getattr(response.usage, 'total_tokens', 0) or 0,
+                }
+
+            return {"response": response_text, "usage": usage}
+        except ImportError:
+            logger.warning("openai package not installed, using fallback")
+            return {
+                "response": "智能分析服务暂时不可用，请稍后重试。",
+                "usage": {},
+            }
         except Exception as e:
             logger.warning(f"Heiman LLM call failed: {e}, using fallback")
             return {
@@ -135,24 +160,40 @@ class HeimanLayer:
             }
 
     async def _call_llm_stream(self, prompt: str):
+        """使用 OpenAI 兼容 API 进行流式调用"""
         try:
-            import httpx
-            
-            body = {
-                "model": self.config.model,
-                "prompt": prompt,
-                "max_tokens": self.config.max_completion_tokens,
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-                "stream": True,
-            }
-            
-            async with httpx.AsyncClient(timeout=httpx.Timeout(self.config.timeout)) as client:
-                async with client.stream("POST", f"{self.config.base_url}/api/generate", json=body) as response:
-                    response.raise_for_status()
-                    async for chunk in response.aiter_text():
-                        if chunk:
-                            yield chunk
+            from openai import AsyncOpenAI
+
+            from heiman.ai.llm_semaphore import get_ai_semaphore
+
+            # 确保 base_url 以 /v1 结尾（OpenAI 兼容端点）
+            base_url = self.config.base_url.rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+
+            client = AsyncOpenAI(
+                api_key=self.config.api_key or "ollama",
+                base_url=base_url,
+            )
+
+            messages = [{"role": "user", "content": prompt}]
+
+            sem = get_ai_semaphore()
+            async with sem:
+                stream = await client.chat.completions.create(
+                    model=self.config.model,
+                    messages=messages,
+                    max_tokens=self.config.max_completion_tokens,
+                    temperature=self.config.temperature,
+                    stream=True,
+                )
+                async for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+        except ImportError:
+            logger.warning("openai package not installed, streaming unavailable")
+            yield "智能分析服务暂时不可用，请稍后重试。"
         except Exception as e:
             logger.warning(f"Heiman LLM stream failed: {e}")
             yield "智能分析服务暂时不可用，请稍后重试。"

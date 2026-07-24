@@ -68,7 +68,8 @@ class AnomalyDetector:
             if result:
                 results.append(result)
         
-        if device_data.get("battery", -1) >= 0:
+        battery = device_data.get("battery")
+        if battery is not None and battery >= 0:
             result = self._detect_battery_low(device_data)
             if result:
                 results.append(result)
@@ -103,8 +104,8 @@ class AnomalyDetector:
         return None
 
     def _detect_battery_low(self, device_data: Dict) -> Optional[AnomalyResult]:
-        battery = device_data.get("battery", -1)
-        if battery >= 0 and battery <= self.battery_low_threshold:
+        battery = device_data.get("battery")
+        if battery is not None and battery >= 0 and battery <= self.battery_low_threshold:
             return AnomalyResult(
                 anomaly_type=AnomalyType.BATTERY_LOW,
                 severity="warning",

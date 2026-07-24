@@ -230,7 +230,7 @@ export function Homes() {
                 )}
 
                 <div className="space-y-3">
-                  {selectedHome.members.map((member) => (
+                  {(selectedHome?.members || []).map((member) => (
                     <div
                       key={member.id}
                       className="flex items-center justify-between p-4 bg-white/5 rounded-xl"

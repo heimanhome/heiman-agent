@@ -25,14 +25,14 @@ const actionLabels: Record<string, string> = {
 };
 
 export function RuleCard({ rule, onToggle, onEdit, onDelete }: RuleCardProps) {
-  const conditionText = rule.conditions
+  const conditionText = (rule.conditions || [])
     .map((c) => {
       const sensorType = c.sensor_type ? `${c.sensor_type} ` : '';
       return `${sensorType}值 ${operatorLabels[c.operator] || c.operator} ${c.threshold}`;
     })
     .join(' 且 ');
 
-  const actionText = rule.actions
+  const actionText = (rule.actions || [])
     .map((a) => actionLabels[a.action_type] || a.action_type)
     .join('、');
 

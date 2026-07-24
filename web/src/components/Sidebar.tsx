@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
-  Thermometer,
   AlertTriangle,
   Settings,
   Flame,
@@ -14,13 +13,13 @@ import {
   Users,
   CheckSquare,
   BarChart3,
+  Brain,
 } from 'lucide-react';
 import { AccountButton } from './AccountButton';
 import { useAppStore } from '../store';
 
 export type TabKey =
   | "dashboard"
-  | "sensors"
   | "events"
   | "rules"
   | "homes"
@@ -29,18 +28,19 @@ export type TabKey =
   | "devices"
   | "persons"
   | "tasks"
-  | "observability";
+  | "observability"
+  | "selfLearning";
 
 const navItems: { icon: typeof LayoutDashboard; path: string; menuKey: TabKey; tabKey: TabKey }[] = [
   { icon: LayoutDashboard, path: "/", menuKey: "dashboard", tabKey: "dashboard" },
   { icon: Home, path: "/homes", menuKey: "homes", tabKey: "homes" },
   { icon: Activity, path: "/devices", menuKey: "devices", tabKey: "devices" },
-  { icon: Thermometer, path: "/sensors", menuKey: "sensors", tabKey: "sensors" },
   { icon: AlertTriangle, path: "/events", menuKey: "events", tabKey: "events" },
   { icon: CheckSquare, path: "/tasks", menuKey: "tasks", tabKey: "tasks" },
   { icon: Users, path: "/persons", menuKey: "persons", tabKey: "persons" },
   { icon: FileText, path: "/logs", menuKey: "logs", tabKey: "logs" },
   { icon: Cpu, path: "/models", menuKey: "models", tabKey: "models" },
+  { icon: Brain, path: "/self-learning", menuKey: "selfLearning", tabKey: "selfLearning" },
   { icon: BarChart3, path: "/observability", menuKey: "observability", tabKey: "observability" },
   { icon: Settings, path: "/rules", menuKey: "rules", tabKey: "rules" },
 ];

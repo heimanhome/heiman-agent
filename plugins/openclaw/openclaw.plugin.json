@@ -17,8 +17,6 @@
     "./skills/heiman-sensors",
     "./skills/heiman-events",
     "./skills/heiman-perception",
-    "./skills/heiman-security",
-    "./skills/heiman-ai-insight",
     "./skills/heiman-behavior-learning",
     "./skills/heiman-edge-inference",
     "./skills/heiman-habit-suggest",
@@ -37,7 +35,13 @@
     "./skills/heiman-scope",
     "./skills/heiman-perception-digest",
     "./skills/heiman-device-monitor",
-    "./skills/heiman-homes"
+    "./skills/heiman-homes",
+    "./skills/heiman-ml-models",
+    "./skills/heiman-ml-ab",
+    "./skills/heiman-ml-online",
+    "./skills/heiman-ml-explain",
+    "./skills/heiman-ai-insight",
+    "./skills/heiman-security"
   ],
   "configSchema": {
     "title": "HeimanPluginConfig",

@@ -10,6 +10,7 @@ class RuleActionType(str, Enum):
     LOG = "log"
     WEBHOOK = "webhook"
     MESSAGE = "message"
+    DEVICE_CONTROL = "device_control"
 
 
 class RuleCondition(BaseModel):
@@ -37,3 +38,28 @@ class Rule(BaseModel):
     home_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class SuggestionStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class RuleSuggestion(BaseModel):
+    suggestion_id: str
+    user_id: str
+    home_id: str | None = None
+    name: str
+    description: str
+    confidence: float
+    pattern_type: str
+    trigger_device_id: str | None = None
+    trigger_device_name: str | None = None
+    action_device_id: str | None = None
+    action_device_name: str | None = None
+    rule_data: dict = Field(default_factory=dict)
+    status: SuggestionStatus = SuggestionStatus.PENDING
+    created_at: datetime = Field(default_factory=datetime.now)
+    approved_at: datetime | None = None
+    rejected_at: datetime | None = None

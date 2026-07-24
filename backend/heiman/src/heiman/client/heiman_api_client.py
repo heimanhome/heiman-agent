@@ -9,7 +9,7 @@ from heiman.config import get_settings
 from heiman.schema.sensor import SensorType, SensorData, SensorStatus
 
 from heiman_mcp.client.heiman import HeimanClient
-from heiman_mcp.exceptions.errors import HeimanAPIError
+from heiman_mcp.exceptions.errors import HeimanAPIError, HeimanAuthError
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,12 @@ class HeimanApiClient:
         self._cache_expiry: datetime | None = None
         self._init_lock = asyncio.Event()
         self._init_lock.set()  # 默认不阻塞
+        # token 刷新频率限制字段
+        self._last_refresh_time: float = 0.0         # 上次刷新尝试的时间戳
+        self._last_refresh_success: bool = False      # 上次刷新是否成功
+        self._consecutive_failures: int = 0           # 连续失败次数
+        self._refresh_cooldown: int = 30              # 刷新冷却时间(秒),避免短时间内重复刷新
+        self._max_consecutive_failures: int = 5       # 最大连续失败次数,超过后停止自动刷新
 
     def _create_client(self, access_token: str) -> HeimanClient:
         logger.info(
@@ -283,27 +289,73 @@ class HeimanApiClient:
         )
 
     async def _try_refresh_token(self) -> bool:
-        """用 refresh_token 刷新 access_token,更新 client 和存储。"""
+        """用 refresh_token 刷新 access_token,更新 client 和存储。
+
+        重要:refresh 失败时不会清除已存储的 token,保留旧 token 以便:
+        1. 用户仍可通过旧 access_token(若未过期)继续使用
+        2. 避免因临时网络错误或响应格式问题导致 token 被误删
+        3. 下次刷新周期可再次尝试
+
+        频率限制:
+        - 冷却时间 _refresh_cooldown 秒内不重复刷新(避免短时间内大量刷新请求)
+        - 连续失败 _max_consecutive_failures 次后停止自动刷新(需要用户重新登录)
+        """
         try:
             from heiman.shared_state import get_current_token, set_current_token
 
+            now = time.time()
+
+            # 1. 冷却时间检查:避免短时间内重复刷新
+            elapsed = now - self._last_refresh_time
+            if elapsed < self._refresh_cooldown:
+                logger.debug(
+                    "[HEIMAN API] Token refresh skipped: in cooldown "
+                    "(%.1fs elapsed, %.1fs required)",
+                    elapsed, self._refresh_cooldown,
+                )
+                return self._last_refresh_success
+
+            # 2. 连续失败次数检查:超过阈值后停止自动刷新
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                logger.warning(
+                    "[HEIMAN API] Token refresh skipped: %d consecutive failures "
+                    "(max=%d), user needs to re-login via OAuth2",
+                    self._consecutive_failures, self._max_consecutive_failures,
+                )
+                return False
+
             token_info = get_current_token()
-            if not token_info or not token_info.get("refresh_token"):
-                logger.warning("[HEIMAN API] No refresh_token available, cannot refresh")
+            if not token_info:
+                logger.warning(
+                    "[HEIMAN API] No stored token info, cannot refresh. "
+                    "User may need to re-login via OAuth2."
+                )
+                return False
+            if not token_info.get("refresh_token"):
+                logger.warning(
+                    "[HEIMAN API] No refresh_token in stored token info "
+                    "(keys=%s, user_id=%s, expires_at=%s), cannot refresh. "
+                    "OAuth2 flow may not have returned refresh_token; user needs to re-login.",
+                    list(token_info.keys()),
+                    token_info.get("user_id", ""),
+                    datetime.fromtimestamp(token_info.get("expires_at", 0)).isoformat() if token_info.get("expires_at") else "unknown",
+                )
                 return False
 
             refresh_token = token_info["refresh_token"]
             user_id = token_info.get("user_id", "")
             expires_at = token_info.get("expires_at", 0)
-            
-            now = time.time()
+
             logger.info(
                 "[HEIMAN API] Refreshing access_token via refresh_token - "
-                "user_id=%s, token_expired=%s, expires_at=%s",
+                "user_id=%s, token_expired=%s, expires_at=%s, attempt=%d/%d",
                 user_id,
                 now > expires_at,
                 datetime.fromtimestamp(expires_at).isoformat() if expires_at else "never",
+                self._consecutive_failures + 1, self._max_consecutive_failures,
             )
+
+            self._last_refresh_time = now
 
             settings = get_settings()
             oauth_client = HeimanClient(
@@ -318,36 +370,53 @@ class HeimanApiClient:
             finally:
                 await oauth_client.close()
 
-            logger.info("[HEIMAN API] Refresh token response type: %s, full response: %s", 
-                        type(token_data).__name__, str(token_data)[:800])
+            logger.info(
+                "[HEIMAN API] Refresh token response type=%s, full response=%s",
+                type(token_data).__name__, str(token_data)[:800]
+            )
 
-            if isinstance(token_data, dict):
-                status = token_data.get("status")
-                result = token_data.get("result")
-                message = token_data.get("message", "")
-                
-                if status == 200 and not result and not message:
-                    logger.error("[HEIMAN API] Token refresh returned empty result - refresh_token may be expired or invalid")
-                    set_current_token(None)
-                    return False
-                
-                new_access_token = token_data.get("access_token")
-                if not new_access_token:
-                    logger.warning(
-                        "[HEIMAN API] Token refresh failed: no access_token in response. "
-                        "status=%s, message=%s, result=%s",
-                        status, message, str(result)[:200] if result else None,
-                    )
-                    set_current_token(None)
-                    return False
-            else:
-                logger.error("[HEIMAN API] Token refresh returned unexpected response type: %s", type(token_data).__name__)
-                set_current_token(None)
+            if not isinstance(token_data, dict):
+                logger.error(
+                    "[HEIMAN API] Token refresh returned unexpected response type: %s, "
+                    "keeping existing token",
+                    type(token_data).__name__
+                )
+                self._consecutive_failures += 1
+                self._last_refresh_success = False
                 return False
 
+            # 兼容两种响应格式:
+            # 1. 扁平结构(OAuth2 标准): {"access_token":"xxx","refresh_token":"xxx","expires_in":3600}
+            # 2. 嵌套结构(Heiman 业务包装): {"status":200,"result":{"access_token":"xxx",...}}
             new_access_token = token_data.get("access_token")
-            new_refresh_token = token_data.get("refresh_token") or refresh_token
-            new_expires_at = time.time() + (token_data.get("expires_in", 3600))
+            new_refresh_token = token_data.get("refresh_token")
+            expires_in = token_data.get("expires_in", 3600)
+
+            if not new_access_token:
+                result = token_data.get("result")
+                if isinstance(result, dict):
+                    logger.info("[HEIMAN API] Trying nested result field for token data")
+                    new_access_token = result.get("access_token")
+                    new_refresh_token = result.get("refresh_token") or new_refresh_token
+                    expires_in = result.get("expires_in", expires_in)
+
+            if not new_access_token:
+                status = token_data.get("status")
+                message = token_data.get("message", "")
+                logger.error(
+                    "[HEIMAN API] Token refresh failed: no access_token in response. "
+                    "status=%s, message=%s, result=%s, keys=%s. Keeping existing token.",
+                    status, message,
+                    str(result)[:200] if result else None,
+                    list(token_data.keys()),
+                )
+                self._consecutive_failures += 1
+                self._last_refresh_success = False
+                return False
+
+            # 保留旧 refresh_token(若响应未返回新的)
+            new_refresh_token = new_refresh_token or refresh_token
+            new_expires_at = time.time() + expires_in
 
             set_current_token({
                 "access_token": new_access_token,
@@ -359,14 +428,31 @@ class HeimanApiClient:
             self._access_token = new_access_token
             self._heiman_client = self._create_client(new_access_token)
 
-            logger.info("[HEIMAN API] Token refreshed successfully, new expires_at=%s", datetime.fromtimestamp(new_expires_at).isoformat())
+            # 刷新成功,重置失败计数
+            self._consecutive_failures = 0
+            self._last_refresh_success = True
+
+            logger.info(
+                "[HEIMAN API] Token refreshed successfully, new expires_at=%s",
+                datetime.fromtimestamp(new_expires_at).isoformat()
+            )
             return True
 
         except Exception as e:
-            logger.error("[HEIMAN API] Token refresh failed: %s", e, exc_info=True)
-            from heiman.shared_state import set_current_token
-            set_current_token(None)
+            logger.error(
+                "[HEIMAN API] Token refresh failed (keeping existing token): %s",
+                e, exc_info=True
+            )
+            self._consecutive_failures += 1
+            self._last_refresh_success = False
             return False
+
+    def reset_refresh_state(self):
+        """重置刷新状态(用户重新登录后调用)。"""
+        self._consecutive_failures = 0
+        self._last_refresh_success = False
+        self._last_refresh_time = 0.0
+        logger.info("[HEIMAN API] Refresh state reset (consecutive_failures=0)")
 
     async def _ensure_valid_token(self) -> bool:
         """检查 token 是否即将过期(5分钟内),若是则主动刷新。"""
@@ -389,6 +475,130 @@ class HeimanApiClient:
         except Exception:
             return True  # 出错不阻塞,让后续请求自行处理 401
 
+    async def _call_api_with_retry(self, api_call, *args, **kwargs):
+        """统一的 API 调用包装器:在 401 时自动刷新 token 并重试一次。
+
+        处理两种 401 场景:
+        1. HeimanAuthError - HTTP 层 401(base.py 中 raise_for_status 触发)
+        2. HeimanAPIError(status=401) - 业务层 401(响应体中 status=401)
+        """
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                return await api_call(*args, **kwargs)
+            except HeimanAuthError as e:
+                last_exc = e
+                if attempt == 0:
+                    logger.warning(
+                        "[HEIMAN API] %s got 401 (HeimanAuthError), refreshing token and retrying",
+                        getattr(api_call, '__name__', str(api_call)),
+                    )
+                    refreshed = await self._try_refresh_token()
+                    if refreshed:
+                        continue
+                    logger.error("[HEIMAN API] Token refresh failed, cannot retry after 401")
+                    raise
+                raise
+            except HeimanAPIError as e:
+                last_exc = e
+                if e.status == 401 and attempt == 0:
+                    logger.warning(
+                        "[HEIMAN API] %s got 401 (HeimanAPIError status=401), refreshing token and retrying",
+                        getattr(api_call, '__name__', str(api_call)),
+                    )
+                    refreshed = await self._try_refresh_token()
+                    if refreshed:
+                        continue
+                    logger.error("[HEIMAN API] Token refresh failed, cannot retry after 401")
+                    raise
+                raise
+        if last_exc:
+            raise last_exc
+
+    async def start_token_refresh_loop(self, check_interval: int = 60, refresh_buffer: int = 300):
+        """后台定时任务:每 check_interval 秒检查一次 token,在过期前 refresh_buffer 秒主动刷新。
+
+        与业务调用解耦,确保 token 不会因长时间无 API 调用而过期。
+
+        退避策略:
+        - 连续失败时,检查间隔会指数增长(check_interval * 2^failures),最长 10 分钟
+        - 连续失败 _max_consecutive_failures 次后停止刷新,等待用户重新登录
+        - 刷新成功后立即恢复正常检查间隔
+        """
+        logger.info(
+            "[HEIMAN API] Token refresh loop started (check_interval=%ds, refresh_buffer=%ds)",
+            check_interval, refresh_buffer,
+        )
+        while True:
+            try:
+                # 计算当前实际休眠时间(失败后指数退避)
+                if self._consecutive_failures > 0 and self._consecutive_failures < self._max_consecutive_failures:
+                    backoff = min(check_interval * (2 ** self._consecutive_failures), 600)
+                    logger.info(
+                        "[HEIMAN API] Token refresh loop: backing off %ds due to %d consecutive failures",
+                        backoff, self._consecutive_failures,
+                    )
+                    await asyncio.sleep(backoff)
+                else:
+                    await asyncio.sleep(check_interval)
+
+                # 连续失败次数已达上限,停止自动刷新
+                if self._consecutive_failures >= self._max_consecutive_failures:
+                    logger.warning(
+                        "[HEIMAN API] Token refresh loop: %d consecutive failures reached, "
+                        "stopping auto-refresh until user re-login or reset_refresh_state() called",
+                        self._consecutive_failures,
+                    )
+                    continue
+
+                from heiman.shared_state import get_current_token
+
+                token_info = get_current_token()
+                if not token_info:
+                    # 没有存储的 token(可能是 email/password 登录或未登录),跳过
+                    continue
+
+                if not token_info.get("refresh_token"):
+                    logger.warning(
+                        "[HEIMAN API] Token refresh loop: no refresh_token in stored token "
+                        "(token_info keys=%s), cannot auto-refresh; user may need to re-login",
+                        list(token_info.keys()),
+                    )
+                    continue
+
+                expires_at = token_info.get("expires_at", 0)
+                now = time.time()
+                remaining = expires_at - now
+
+                if remaining > refresh_buffer:
+                    # 还没到刷新窗口
+                    continue
+
+                if remaining <= 0:
+                    logger.warning(
+                        "[HEIMAN API] Token refresh loop: token already expired (expires_at=%s), refreshing now",
+                        datetime.fromtimestamp(expires_at).isoformat() if expires_at else "unknown",
+                    )
+                else:
+                    logger.info(
+                        "[HEIMAN API] Token refresh loop: token expires in %.0fs, refreshing proactively",
+                        remaining,
+                    )
+
+                refreshed = await self._try_refresh_token()
+                if not refreshed:
+                    logger.error(
+                        "[HEIMAN API] Token refresh loop: refresh failed "
+                        "(consecutive_failures=%d/%d)",
+                        self._consecutive_failures, self._max_consecutive_failures,
+                    )
+
+            except asyncio.CancelledError:
+                logger.info("[HEIMAN API] Token refresh loop cancelled")
+                raise
+            except Exception as e:
+                logger.error("[HEIMAN API] Token refresh loop error: %s", e, exc_info=True)
+
     async def _wait_for_init(self):
         """等待初始化完成（如果有正在进行）"""
         try:
@@ -409,6 +619,8 @@ class HeimanApiClient:
     async def _refresh_cache(self):
         try:
             logger.info("[HEIMAN API] Refreshing cache")
+            # 主动检查 token,避免 cache 刷新时 token 已过期导致 401
+            await self._ensure_valid_token()
             self._homes_cache = await self._fetch_home_list()
             self._cache_expiry = datetime.now()
             logger.info(
@@ -426,35 +638,28 @@ class HeimanApiClient:
             logger.warning("[HEIMAN API] user_id is required for get_home_list")
             return []
 
-        for attempt in range(2):  # 最多重试 1 次(401 后刷新 token)
-            try:
-                result = await self._heiman_client.get_home_list(user_id=self._user_id)
+        try:
+            result = await self._call_api_with_retry(
+                self._heiman_client.get_home_list, user_id=self._user_id
+            )
 
-                logger.info(
-                    "[HEIMAN API] get_home_list: data=%s",
-                    result,
-                )
+            logger.info(
+                "[HEIMAN API] get_home_list: data=%s",
+                result,
+            )
 
-                if result.get("status") == 200:
-                    homes = result.get("result", [])
-                    if not isinstance(homes, list):
-                        homes = []
-                    return homes
-                return []
-            except HeimanAPIError as e:
-                if e.status == 401 and attempt == 0:
-                    logger.warning("[HEIMAN API] get_home_list got 401, refreshing token and retrying")
-                    refreshed = await self._try_refresh_token()
-                    if refreshed:
-                        continue
-                    logger.error("[HEIMAN API] Token refresh failed, cannot retry get_home_list")
-                    return []
-                logger.error("[HEIMAN API] Get home list failed: %s", e)
-                return []
-            except Exception as e:
-                logger.error("[HEIMAN API] Get home list failed: %s", e)
-                return []
-        return []
+            if result.get("status") == 200:
+                homes = result.get("result", [])
+                if not isinstance(homes, list):
+                    homes = []
+                return homes
+            return []
+        except (HeimanAuthError, HeimanAPIError) as e:
+            logger.error("[HEIMAN API] Get home list failed after retry: %s", e)
+            return []
+        except Exception as e:
+            logger.error("[HEIMAN API] Get home list failed: %s", e)
+            return []
 
     async def get_home_list(self) -> list:
         await self._wait_for_init()
@@ -1592,7 +1797,9 @@ class HeimanApiClient:
                         )
                         return room_list
 
-            result = await self._heiman_client.get_room_list(home_id=home_id)
+            result = await self._call_api_with_retry(
+                self._heiman_client.get_room_list, home_id=home_id
+            )
 
             logger.info(
                 "[HEIMAN API] get_room_list for home %s: status=%s",
@@ -1622,7 +1829,9 @@ class HeimanApiClient:
             return []
 
         try:
-            result = await self._heiman_client.get_home_user_list(home_id=home_id)
+            result = await self._call_api_with_retry(
+                self._heiman_client.get_home_user_list, home_id=home_id
+            )
 
             logger.info(
                 "[HEIMAN API] get_home_members for home %s: data=%s",
@@ -1643,3 +1852,102 @@ class HeimanApiClient:
                 "[HEIMAN API] Get home members failed for home %s: %s", home_id, e
             )
             return []
+
+    async def get_device_panel(self, product_id: str) -> dict:
+        """获取设备面板信息.
+
+        Args:
+            product_id: 产品ID
+
+        Returns:
+            面板信息字典，包含 panelUrl 等字段
+        """
+        if not self._heiman_client:
+            return {}
+
+        try:
+            settings = get_settings()
+            logger.info(
+                "[HEIMAN API] get_device_panel - app_id=%s, product_id=%s",
+                settings.heiman.app_id,
+                product_id,
+            )
+
+            result = await self._call_api_with_retry(
+                self._heiman_client.get_panel_by_app_product,
+                app_id=settings.heiman.app_id,
+                id_list=[product_id],
+            )
+
+            logger.info(
+                "[HEIMAN API] get_device_panel response for product %s: data=%s",
+                product_id,
+                str(result)[:500],
+            )
+
+            if result.get("status") == 200:
+                result_data = result.get("result", result)
+                if isinstance(result_data, dict) and result_data.get("data"):
+                    return result_data.get("data", {})
+                elif isinstance(result_data, list) and len(result_data) > 0:
+                    return result_data[0]
+                return result_data
+            return result
+        except Exception as e:
+            logger.error("[HEIMAN API] Get device panel failed for product %s: %s", product_id, e)
+            return {}
+
+    async def prepare_panel_entry(self, panel_url: str, sync_data: dict | None = None) -> dict:
+        """准备面板入口，创建文件系统会话.
+        
+        Args:
+            panel_url: 面板 URL
+            sync_data: 同步数据（语言、设备信息等）
+            
+        Returns:
+            会话信息，包含 sessionId、entryUrl、fileCount
+        """
+        if not self._heiman_client:
+            return {}
+
+        try:
+            if sync_data is None:
+                sync_data = {}
+            result = await self._heiman_client.prepare_panel_entry(panel_url, sync_data)
+
+            logger.info(
+                "[HEIMAN API] prepare_panel_entry: panel_url=%s, result=%s",
+                panel_url,
+                str(result)[:500],
+            )
+
+            return result
+        except Exception as e:
+            logger.error("[HEIMAN API] Prepare panel entry failed: %s", e)
+            return {}
+
+    async def close_panel_session(self, session_id: str) -> dict:
+        """关闭面板会话.
+        
+        Args:
+            session_id: 会话 ID
+            
+        Returns:
+            关闭结果
+        """
+        if not self._heiman_client:
+            return {}
+
+        try:
+            result = await self._heiman_client.close_panel_session(session_id)
+
+            logger.info(
+                "[HEIMAN API] close_panel_session: session_id=%s, result=%s",
+                session_id,
+                str(result)[:200],
+            )
+
+            return result
+        except Exception as e:
+            logger.error("[HEIMAN API] Close panel session failed for %s: %s", session_id, e)
+            return {}

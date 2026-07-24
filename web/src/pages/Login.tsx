@@ -1,36 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Lock, AlertCircle, Loader2, ExternalLink, Shield, ArrowLeft } from 'lucide-react';
 
 export function Login() {
   const { t } = useTranslation('app');
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const code = searchParams.get('code');
-    const state = searchParams.get('state');
-    
-    if (code && state) {
-      setLoading(true);
-      fetch(`/api/auth/heiman_redirect?code=${code}&state=${state}`)
-        .then(res => res.text())
-        .then(html => {
-          document.open();
-          document.write(html);
-          document.close();
-        })
-        .catch(() => {
-          setError(t('loginFailed'));
-          setLoading(false);
-        });
-    }
-  }, [searchParams, t]);
-
   const handleOAuthLogin = () => {
+    setLoading(true);
     window.location.href = '/api/auth/login';
   };
 
@@ -111,17 +91,6 @@ export function Login() {
             </div>
           </div>
         </div>
-
-        <p className="text-center text-sm text-[#6b7a9a] mt-8">
-          {t('noAccount')}
-          <button
-            type="button"
-            onClick={handleOAuthLogin}
-            className="ml-1 text-[#00d4ff] hover:text-[#00ff88] transition-colors font-medium"
-          >
-            {t('signUp')}
-          </button>
-        </p>
 
         <div className="flex justify-center gap-8 mt-8 text-xs text-[#6b7a9a]">
           <a href="#privacy" className="hover:text-white transition-colors">{t('privacy')}</a>

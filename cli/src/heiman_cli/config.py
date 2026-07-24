@@ -30,7 +30,6 @@ def config_file() -> Path:
 _SCHEMA_PATHS: dict[str, tuple[type, Any, str]] = {
     "debug": (bool, False, "是否启用调试模式"),
     "server.url": (str, "http://127.0.0.1:1912", "Heiman Agent 后端 HTTP Base URL"),
-    "server.token": (str, "", "后端 bearer Token（后端首次启动生成，CLI 勿覆盖）"),
     "server.tls_verify": (bool, False, "访问后端时是否校验 TLS 证书"),
     "server.python_bin": (str, "", "启动 heiman-backend 的 Python 解释器绝对路径"),
 }

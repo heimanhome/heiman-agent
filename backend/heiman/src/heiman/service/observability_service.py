@@ -159,8 +159,13 @@ class ObservabilityService:
                 ).fetchall()
                 by_type = {row["sensor_type"]: row["cnt"] for row in by_type_rows}
 
-                online_sensors = total_sensors
-                offline_sensors = 0
+                offline_threshold = (datetime.now() - timedelta(minutes=60)).isoformat()
+                online_row = cursor.execute(
+                    "SELECT COUNT(DISTINCT did) as cnt FROM sensor_logs WHERE timestamp >= ?",
+                    (offline_threshold,),
+                ).fetchone()
+                online_sensors = online_row["cnt"] if online_row else 0
+                offline_sensors = total_sensors - online_sensors
 
                 return SensorStats(
                     total_sensors=total_sensors,
@@ -186,12 +191,34 @@ class ObservabilityService:
             rules = self.rule_repo.get_all()
             enabled_rules = sum(1 for r in rules if r.enabled)
 
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                total_row = cursor.execute(
+                    "SELECT COUNT(*) as cnt FROM rule_executions"
+                ).fetchone()
+                triggered_total = total_row["cnt"] if total_row else 0
+
+                today_row = cursor.execute(
+                    "SELECT COUNT(*) as cnt FROM rule_executions WHERE executed_at >= ?",
+                    (today_start,),
+                ).fetchone()
+                triggered_today = today_row["cnt"] if today_row else 0
+
+                actions_today_row = cursor.execute(
+                    "SELECT COUNT(*) as cnt FROM rule_executions WHERE executed_at >= ?",
+                    (today_start,),
+                ).fetchone()
+                actions_executed_today = actions_today_row["cnt"] if actions_today_row else 0
+
             return RuleStats(
                 total_rules=len(rules),
                 enabled_rules=enabled_rules,
-                triggered_today=0,
-                triggered_total=0,
-                actions_executed_today=0,
+                triggered_today=triggered_today,
+                triggered_total=triggered_total,
+                actions_executed_today=actions_executed_today,
             )
         except Exception as e:
             logger.error("Failed to get rule stats: %s", e)

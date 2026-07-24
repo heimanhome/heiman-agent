@@ -398,7 +398,7 @@ export function Models() {
   const chartData = period === 'today' ? buckets : daily;
   const maxTokens = Math.max(
     1,
-    ...chartData.map((d: any) => d.total_tokens || 0)
+    ...((chartData || []).map((d: any) => d.total_tokens || 0))
   );
 
   return (
@@ -456,7 +456,7 @@ export function Models() {
                         </tr>
                       </thead>
                       <tbody>
-                        {profiles.length === 0 ? (
+                        {!profiles || profiles.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="px-5 md:px-6 py-5 text-center text-gray-500 dark:text-[#6b7a9a]">
                               暂无配置
@@ -691,11 +691,11 @@ export function Models() {
                       <option value={180}>3 小时</option>
                     </select>
                   </div>
-                  {buckets.length === 0 ? (
+                  {!buckets || buckets.length === 0 ? (
                     <div className="py-8 text-center text-gray-500 dark:text-[#6b7a9a] text-sm">暂无数据</div>
                   ) : (
                     <div className="h-32 flex items-end gap-1">
-                      {buckets.slice().reverse().map((b, i) => (
+                      {(buckets || []).slice().reverse().map((b, i) => (
                         <div
                           key={i}
                           className="flex-1 bg-gradient-to-t from-[#00d4ff] to-[#00ff88] rounded-t transition-all hover:opacity-80"
@@ -728,7 +728,7 @@ export function Models() {
                       </tr>
                     </thead>
                     <tbody>
-                      {chartData.length === 0 ? (
+                      {!chartData || chartData.length === 0 ? (
                         <tr>
                           <td
                             colSpan={6}
@@ -738,7 +738,7 @@ export function Models() {
                           </td>
                         </tr>
                       ) : (
-                        chartData.map((row: any, i: number) => (
+                        (chartData || []).map((row: any, i: number) => (
                           <tr
                             key={i}
                             className="border-b border-[#2a3142] last:border-b-0"

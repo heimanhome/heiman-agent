@@ -8,7 +8,6 @@ from fastapi.responses import StreamingResponse
 
 from heiman.database.event_repo import EventRepo
 from heiman.dependencies import get_event_repo
-from heiman.manager import get_manager
 from heiman.schema.sensor import SensorEvent, SensorEventLevel, SensorEventType
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -42,62 +41,27 @@ async def get_events(
     event_repo: EventRepo = Depends(get_event_repo),
 ):
     try:
-        mgr = get_manager()
         offset = (page - 1) * page_size
         
-        if mgr.api_client.is_authenticated:
-            api_events = await mgr.api_client.get_alarm_logs(home_id, page_size + offset)
-            db_events = event_repo.query(
-                event_type=event_type.value if event_type else None,
-                level=level.value if level else None,
-                did=did,
-                acknowledged=acknowledged,
-                after=after,
-                before=before,
-                limit=page_size + offset,
-                offset=0,
-            )
-            
-            all_events = api_events + db_events
-            
-            if event_type:
-                all_events = [e for e in all_events if e.get("event_type") == event_type.value]
-            
-            if level:
-                all_events = [e for e in all_events if e.get("level") == level.value]
-            
-            if did:
-                all_events = [e for e in all_events if e.get("did") == did]
-            
-            if acknowledged is not None:
-                all_events = [e for e in all_events if e.get("acknowledged") == acknowledged]
-            
-            all_events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-            
-            total = len(all_events)
-            paginated_events = all_events[offset:offset + page_size]
-            
-            return {"success": True, "data": paginated_events, "total": total, "page": page, "page_size": page_size}
-        else:
-            total = event_repo.count(
-                event_type=event_type.value if event_type else None,
-                level=level.value if level else None,
-                did=did,
-                acknowledged=acknowledged,
-                after=after,
-                before=before,
-            )
-            db_events = event_repo.query(
-                event_type=event_type.value if event_type else None,
-                level=level.value if level else None,
-                did=did,
-                acknowledged=acknowledged,
-                after=after,
-                before=before,
-                limit=page_size,
-                offset=offset,
-            )
-            return {"success": True, "data": db_events, "total": total, "page": page, "page_size": page_size}
+        total = event_repo.count(
+            event_type=event_type.value if event_type else None,
+            level=level.value if level else None,
+            did=did,
+            acknowledged=acknowledged,
+            after=after,
+            before=before,
+        )
+        db_events = event_repo.query(
+            event_type=event_type.value if event_type else None,
+            level=level.value if level else None,
+            did=did,
+            acknowledged=acknowledged,
+            after=after,
+            before=before,
+            limit=page_size,
+            offset=offset,
+        )
+        return {"success": True, "data": db_events, "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         logger.error("Failed to get events: %s", e)
         return {"success": False, "data": [], "message": str(e)}
@@ -125,6 +89,7 @@ async def events_stream(request: Request, token: str = Query("")):
 
     Supports token authentication via query parameter for SSE clients
     that can't set Authorization headers.
+    If no token is provided, checks backend stored session token.
     """
     from heiman.config import get_settings
     from heiman.service.event_bus import get_event_bus
@@ -132,12 +97,17 @@ async def events_stream(request: Request, token: str = Query("")):
 
     settings = get_settings()
     service_token = settings.server.token
+    current_token = get_current_token()
 
-    if service_token and token != service_token:
-        current_token = get_current_token()
-        if not (current_token and token == current_token.get("access_token")):
-            from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    if service_token and token == service_token:
+        pass
+    elif token == current_token.get("access_token") if current_token else False:
+        pass
+    elif not token and current_token:
+        pass
+    else:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     bus = get_event_bus()
     queue = await bus.subscribe()
