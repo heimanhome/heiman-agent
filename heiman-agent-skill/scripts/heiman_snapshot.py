@@ -207,10 +207,17 @@ def resolve_endpoint() -> tuple[str, str]:
 
 
 def get(base: str, token: str, path: str):
+    """请求本地后端。
+
+    始终绕过 http_proxy：本机设置了全局代理时，代理会连 127.0.0.1 一起转发
+    并返回 502，会让原本健康的服务被误判为不可用。
+    """
+
     req = urllib.request.Request(base + path, method="GET")
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", "application/json")
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=30) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 

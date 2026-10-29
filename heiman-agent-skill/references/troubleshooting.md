@@ -8,20 +8,43 @@ python scripts/heiman_ctl.py status
 python scripts/heiman_ctl.py logs -n 120
 ```
 
-## 1. 找不到项目根目录
+## 1. 找不到项目根目录 / 找不到安装源
 
-**现象**：`install` / `start` 返回 `未找到 heiman-agent 项目根目录`。
+**现象**：`start` 返回 `未找到 heiman-agent 项目根目录`，或 `install` 返回
+`未能自动定位到可用的 heiman-agent 安装源`。
 
-**处理**：按优先级指定路径
+**处理**：先跑自动安装，它自己会找源码或 git 地址，不需要手填来源
 
 ```bash
-python scripts/heiman_ctl.py --project "<项目根>" install
-# 或
-export HEIMAN_AGENT_HOME="<项目根>"
+python scripts/heiman_ctl.py install
+python scripts/heiman_ctl.py where      # 看它最终定位到了哪
+python scripts/heiman_ctl.py source show
 ```
 
-自动探测顺序：`--project` → `HEIMAN_AGENT_HOME` → `~/.heiman/agent.json` → 内置常见安装路径候选。
-建议在需要固定的场景直接设置 `HEIMAN_AGENT_HOME`，避免依赖自动探测。
+只在自动链路失败时才需要人工介入，任选其一：
+
+```bash
+# 1) 写入用户级配置（推荐，优先级最高且不被脚本更新覆盖）
+python scripts/heiman_ctl.py source set "<git-url>" --branch master
+# 2) 换团队共享默认值：编辑 scripts/heiman_ctl.py 的 DEFAULTS["primary"]，
+#    或（可选）放一份 <SKILL>/config/install-sources.json
+# 3) 环境变量
+export HEIMAN_GIT_URL="<git-url>"
+export HEIMAN_GIT_BRANCH="master"
+# 4) 命令行显式指定
+python scripts/heiman_ctl.py install --source "<git-url>"
+python scripts/heiman_ctl.py --project "<项目根>" install
+```
+
+技能包**不需要** `config/install-sources.json`：脚本内置的默认地址已经够用，
+缺这个文件不会报"找不到配置"。
+
+自动查找顺序（完整版见 SKILL.md 的「安装源自动查找」章节）：
+`--source` → `--project` → `HEIMAN_GIT_URL` → `HEIMAN_AGENT_HOME`/内置常见路径 →
+本地克隆有界扫描 → `~/.heiman/agent.json` → 用户级配置 → 技能内置配置 → generated 候选。
+
+需要固定来源的场景，直接设置 `HEIMAN_AGENT_HOME`，避免依赖自动探测。
+扫描太慢可用 `HEIMAN_NO_SCAN=1` 关闭，或 `HEIMAN_SCAN_ROOTS="<dir1>;<dir2>"` 限定范围。
 
 ## 2. 端口被占用
 
@@ -79,26 +102,141 @@ python scripts/heiman_ctl.py logs -n 60
 
 ## 5. 海曼云端返回"账号未登录"
 
-**现象**：接口返回 `账号未登录` 或 401。
+**现象**：日志里先出现 `Logged in successfully, user_id: ...`，紧接着
+`get_home_list` 报 `401 账号未登录`；或 `heiman_snapshot.py` 取到 0 设备、服务进入
+`Running in OFFLINE mode`。
 
-**原因**：OAuth token 过期或 `HEIMAN_EMAIL` / `HEIMAN_PASSWORD` 未填写。
+**处理**：先用 AskUserQuestion 让用户选绑定方式（SKILL.md「第 1.8 步」），再按下述路径处理。
 
-**处理**：
+**路径 A（默认，与 `.env` 无关）**：
 
-1. 编辑 `backend/heiman/.env`，确认：
+1. 引导用户打开 `http://127.0.0.1:1912`：未绑定时页面自动弹出登录对话框，
+   或点**左侧边栏底部**账号区域 → 跳海曼官方授权页登录。
+   OAuth 的 `client_id` 等参数是后端内置默认值，**不需要改 `.env`**。
+2. 已绑定但 token 失效：`python scripts/heiman_ctl.py api POST /api/auth/logout`
+   （清 token + 断 MQTT）→ 用户刷新页面重新绑定。
+
+**路径 B（用户把账号密码交给 Agent，Agent 代写 `.env`）**：
+
+```bash
+python scripts/heiman_ctl.py env set --email "<用户邮箱>" --password "<用户密码>"
+python scripts/heiman_ctl.py restart
+python scripts/heiman_ctl.py env auth-url      # 取授权地址发给用户，这步不能省
+```
+
+`env set` 会自动删掉 `HEIMAN_APP_ID=your_app_id` 占位符（保留真实数值），
+`env show` 输出脱敏。若重启后日志仍 `total=0`，按 5.1 自动回读真实 appId。
+
+> **关键认知：路径 B 也不能免掉 OAuth。** 后端 `login()` 只用 `app_id` + `email` 查用户
+> （`HEIMAN_PASSWORD` 后端根本不读），回包里没有 token，`get_home_list` 依旧 401。
+> 所以「填了 .env 还是取不到数」是预期行为，不是故障——补一次浏览器授权即可。
+
+**无头/远程场景兜底**（两条路径通用）——生成授权地址发给用户：
+
+```bash
+python scripts/heiman_ctl.py env auth-url
+```
+
+**验证**：
+
+```bash
+python scripts/heiman_ctl.py api GET /api/auth/token   # 期望 authenticated: true
+python scripts/heiman_snapshot.py                      # 期望设备非空
+```
+
+### 5.1 陷阱一：`HEIMAN_APP_ID` 是模板占位符
+
+`.env` 由模板生成，`HEIMAN_APP_ID` 的默认值是 `your_app_id` —— 恰好 11 个字符，
+**长得像真值**，但必然查不到用户。
+
+登录走的是 `POST /api-app/appUser/get/listByPage`，只用 **`appId` + `email`**（**不使用密码**）。
+`appId` 是云端给"应用"分配的编号，用来在多租户用户表里定位你的账号。用变体请求可自证：
+
+| 请求参数 | 返回 |
+|---|---|
+| `appId=your_app_id` + email | `total=0` ❌ |
+| **仅 `email`**（不带 appId） | `total=1`，回包里带真实 `appId` ✅ |
+| 空参 | 返回平台上全部用户 |
+
+**推荐修法：先删掉这一行。** 源码里 `HeimanSettings.app_id` 的默认值就是 `"11"`，
+`.env` 里这行的唯一作用是**覆盖默认值** —— 不写它反而会正确使用内置的 `11`。
+也就是说这个字段是「照抄模板的人踩坑，删掉的人没事」。
+
+**但删掉不一定够**。实测平台上共存着 **3 种 appId**（采样 1000 人）：
+
+| appId | 占比 |
+|---|---|
+| `11` | 82.5% |
+| `13` | 17.1% |
+| `12` | 0.4% |
+
+约 **1/6 的用户不属于 appId 11**，这些人必须填自己的值。所以正确的排查顺序是：
+
+1. **确认 `HEIMAN_APP_ID` 整行不存在**（`install` 生成 `.env` 时已自动注释占位符；
+   若看到真实数值则保留） → 重启 → 若 `Logged in successfully` 则结束（覆盖大多数）
+2. **仍然 `total=0`** → 用「仅 email」查一次回读真实 appId，再填回 `.env`：
+
+   ```python
+   import asyncio, sys
+   sys.path.insert(0, "<项目根>/backend/heiman/src")
+   from heiman_mcp.client.heiman import HeimanClient
+   async def m():
+       c = HeimanClient(base_url="https://spapi.heiman.cn", token="")
+       r = await c.get_user_list(page_size=1, page_number=1, email="<账号邮箱>")
+       lst = (r.get("result") or {}).get("list") or []
+       print("total:", (r.get("result") or {}).get("total"), "| appId:", lst[0].get("appId") if lst else None)
+   asyncio.run(m())
+   # 期望输出: total: 1 | appId: 11  ← 把这个数字填回 .env
    ```
-   HEIMAN_API_URL=https://spapi.heiman.cn
-   HEIMAN_APP_ID=11
-   HEIMAN_EMAIL=<你的海曼账号>
-   HEIMAN_PASSWORD=<你的海曼密码>
-   ```
-2. 重启服务：`python scripts/heiman_ctl.py restart`
-3. 验证云端连通性：
-   ```bash
-   python scripts/heiman_ctl.py cli admin heiman-test
-   python scripts/heiman_ctl.py api GET /api/auth/token
-   ```
-4. 仍失败时，通过 Web 界面 `http://127.0.0.1:1912/` 重新登录一次（浏览器 OAuth 流程）。
+
+3. 填回后重启验证。
+
+> **结论：绝大多数用户不需要提供 app_id**（删掉那行即可）。只有当第 1 步失败时才需要查，
+> 而且**不需要问用户要** —— 用上面的请求自动回读就行。
+>
+> 另：`.env` 里的密码在这个接口里根本不参与校验。
+> 该接口无任何鉴权，空参会返回全部 8348 个用户，属服务端安全问题，不要对外暴露此服务。
+
+### 5.2 陷阱二：email/password 拿不到 token，必须走 OAuth2
+
+即使上面修好了、日志打印 `Logged in successfully`，`get_home_list` 仍会 401。
+因为查用户接口**不返回 token**，客户端里 `self._access_token = user.get("token", "")` 是空的，
+所有需要鉴权的接口自然全 401。
+
+**真正能拿到 token 的路径是 OAuth2**。**默认让用户在 Web 界面完成**（打开
+`http://127.0.0.1:1912` → 登录对话框 / 侧边栏底部账号区域 → 登录海曼账号），
+无头/远程场景（或用户选了路径 B）由 Agent 生成授权地址：
+
+```bash
+# 1) 生成授权地址（服务需已启动）
+python scripts/heiman_ctl.py env auth-url
+
+# 2) 把返回的 authorize_url 发给用户 → 浏览器打开 → 用海曼账号登录
+#    → /api/auth/heiman_redirect 回调换取 token
+# 3) 日志应出现：Attempting MQTT connection with access_token=..., user_id=...
+```
+
+> `client_id` / `redirect_uri` 是项目 `settings.py` 的内置默认值，不是占位符，无需再配置。
+
+**token 会持久化落库**（写在 `kv` 表的 `heiman_oauth_token` 键里，数据库默认
+`~/.heiman/logs/heiman.db`）。验证一次即可，**之后重启服务无需再授权**：
+
+```bash
+python -c "import sqlite3;print([r[0] for r in sqlite3.connect(r'C:\Users\rd98\.heiman\logs\heiman.db').execute('SELECT key FROM kv')])"
+# 期望输出: ['heiman_oauth_token']
+```
+
+授权成功后确认有数据：
+
+```bash
+python scripts/heiman_snapshot.py   # 应看到 homes / devices / sensors 非空
+```
+
+### 5.3 已知非阻塞问题
+
+`/api/homes` 可能打日志 `Failed to save member ...: PersonRepo.create() got multiple
+values for argument 'role'`。这只是**成员未落库**（`members_saved=0`），
+接口本身仍返回 200，设备/房间数据不受影响，可忽略。
 
 ## 6. 换账号登录后设备列表为空（多家庭场景）
 
@@ -213,7 +351,36 @@ Windows 下通过 `taskkill /T /F` 终止进程树；macOS/Linux 先 `SIGTERM`�
 
 ```bash
 python scripts/heiman_ctl.py stop
-rm -rf ~/.heiman          # 删除 venv、数据、日志、配置
+rm -rf ~/.heiman          # 删除 venv、数据、日志、配置、自动克隆的源码
 ```
 
 > 该操作不可逆，会删除数据库与配置。执行前请确认。
+
+## 13. git 源探测全部失败（`git ls-remote` 报错）
+
+**现象**：`source probe` 里每个地址都 `ok: false`，或 `install` 报「未能自动定位到可用的安装源」。
+
+**排查**：
+
+```bash
+python scripts/heiman_ctl.py source probe        # 逐个看失败原因
+python scripts/heiman_ctl.py where               # 确认 project_root 是否已被定位到
+```
+
+| 报错特征 | 原因 | 处理 |
+|---|---|---|
+| `Could not resolve host` / `Connection refused` | 网络不通或端口未开放 | 确认能访问该 git 服务；内网仓库先连 VPN |
+| `Connection refused` 且端口 22 | SSH 未开放 | 改走 http/https 地址（本机内网仓库即如此） |
+| `does not appear to be a git repository` | 地址路径写错 | 核对 org / repo 名，浏览器打开确认 |
+| `Authentication failed` / `403` | 凭据缺失或过期 | 在 `primary` 里带 token，或配好 SSH key；`BatchMode=yes` 下不会交互提示 |
+| `timeout` | 代理或防火墙拦截 | 配 `http_proxy` / `https_proxy`，或调大 `probe.timeout_seconds` |
+
+**兜底**：确认地址无误但探测仍不通时，用 `--no-probe` 跳过探测直接克隆；
+或先手工克隆到任意目录，再用 `--project <路径>` 指向它。
+
+## 14. 克隆目标目录非空
+
+**现象**：`source sync` / `install` 报 `克隆目标目录非空且不是 git 仓库`。
+
+**处理**：换一个 `--dest`，或清空该目录后重试。已存在另一来源的副本时脚本会
+**只复用不覆盖**，如需切换来源请先手动删除该目录。

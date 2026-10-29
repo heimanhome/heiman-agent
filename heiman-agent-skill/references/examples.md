@@ -113,6 +113,61 @@ git archive HEAD | tar -x -C /tmp/heiman-src
 
 > 注意：同一份技能包在不同位置可能一份明文、一份密文。做版本对比或打包时，先确认副本头部不是 `%TSD-Header-###%`。
 
+## 示例 10：首次使用 / 本机没有源码
+
+**用户**：帮我装一下 heiman-agent
+
+**执行**：
+
+```bash
+python "<SKILL>/scripts/heiman_ctl.py" install
+```
+
+**要点**：
+
+- 不要问用户「源码在哪 / git 地址是什么」。`install` 会先扫描本机常见位置，
+  找不到再按配置与规则探测 git 地址并克隆到 `~/.heiman/src/heiman-agent`，然后装依赖。
+- 想确认它到底用了哪个源，看输出的 `source.origin` / `source.url_display`，
+  或跑 `python "<SKILL>/scripts/heiman_ctl.py" source show`。
+- 典型的几个动作：`origin=local-clone` 表示复用了本机已有副本（不联网）；
+  `origin=skill-default` 表示用了脚本内置的仓库地址（`heiman_ctl.py` 的 `DEFAULTS`）；
+  `origin=user-config` 表示用了 `source set` 写入的用户配置。
+- 自动链路全失败时才需要人工介入：`source set <url>`、`HEIMAN_GIT_URL` 环境变量、
+  `--source <url>`，或（可选）放一份 `config/install-sources.json`。
+
+**安装后**：`start` 启动服务，然后用 AskUserQuestion 让用户选绑定方式（A 网页自助 / B 代填凭据），
+两条路径最后都需一次 OAuth 授权。
+
+**示例：用户选了「B. 我给你账号密码，你帮我填」**
+
+```
+用户：账号是 zhangsan@example.com，密码 abc123
+
+Agent 动作（不回显明文）：
+python scripts/heiman_ctl.py env set --email "zhangsan@example.com" --password "abc123"
+# -> changed: HEIMAN_EMAIL: y*********@example.com -> z*******@example.com
+#             HEIMAN_PASSWORD: ****** （已写入，后端当前不使用密码）
+#             已删除 HEIMAN_APP_ID=your_app_id（占位符，改回内置默认值 11）
+python scripts/heiman_ctl.py restart
+python scripts/heiman_ctl.py env auth-url
+# -> authorize_url: https://spfile.heiman.cn/applogin/sso.html?client_id=...&state=...
+
+Agent 回复：凭据已写入本机 .env（输出已脱敏）。还差最后一步——请把这个链接粘到浏览器
+打开并用你的海曼账号登录：https://spfile.heiman.cn/applogin/sso.html?...
+登录完成回调后取数就通了。
+```
+
+**示例：用户选了「A. 我自己在网页上登录」**
+
+```
+Agent 回复：打开 http://127.0.0.1:1912，页面会弹出登录对话框（没弹就点左侧边栏底部的
+账号区域），点登录跳到海曼官方页，用你的账号登录即可。密码只经过海曼官网，我不会接触，
+也不用改任何配置文件。
+```
+
+> 选 A 时**不要索要密码**；选 B 时回复与日志一律脱敏，并提醒用户这只是省去手工编辑配置，
+> token 仍必须由他本人在浏览器授权一次。
+
 ## 安全边界示例
 
 | 用户请求 | 处理 |
