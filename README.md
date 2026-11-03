@@ -1,5 +1,7 @@
 # Heiman Agent
 
+**简体中文** | [English](README_EN.md)
+
 海曼传感器智能Agent，用于智能家居安全监控与自动化。
 
 ## 功能特性
